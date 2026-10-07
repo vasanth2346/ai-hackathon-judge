@@ -1,0 +1,20 @@
+.env
+.env.*
+!.env.example
+node_modules/
+.npm-cache/
+.next/
+__pycache__/
+.pytest_cache/
+.venv/
+*.py[cod]
+*.db
+backend/evidence/*
+!backend/evidence/.gitkeep
+
+# Local agent skills are developer tooling, not part of the application.
+.agents/
+skills-lock.json
+
+# Temporary browser test screenshots.
+/croprescue-*.png

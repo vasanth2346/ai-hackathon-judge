@@ -1,0 +1,76 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-hackathon_judge}
+      POSTGRES_USER: ${POSTGRES_USER:-judge}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-this-local-password}
+    ports:
+      - "5432:5432"
+    volumes:
+      - judge_db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-judge} -d ${POSTGRES_DB:-hackathon_judge}"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+
+  api:
+    build: ./backend
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-judge}:${POSTGRES_PASSWORD:-change-this-local-password}@db:5432/${POSTGRES_DB:-hackathon_judge}
+      REDIS_URL: redis://redis:6379/0
+      EVIDENCE_DIR: /app/evidence
+    ports:
+      - "${API_PORT:-8000}:8000"
+    volumes:
+      - judge_evidence:/app/evidence
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker:
+    build: ./backend
+    command: celery -A app.tasks.celery_app worker --loglevel=INFO --concurrency=2
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-judge}:${POSTGRES_PASSWORD:-change-this-local-password}@db:5432/${POSTGRES_DB:-hackathon_judge}
+      REDIS_URL: redis://redis:6379/0
+      EVIDENCE_DIR: /app/evidence
+    volumes:
+      - judge_evidence:/app/evidence
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  web:
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:${API_PORT:-8000}
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:${API_PORT:-8000}
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    depends_on:
+      - api
+
+volumes:
+  judge_db:
+  judge_evidence:
+
