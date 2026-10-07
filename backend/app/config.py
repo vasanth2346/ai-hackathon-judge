@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     llm_model: str = "gemini-2.5-flash"
     auth_secret_key: str = ""
     auth_cookie_secure: bool = False
+    auth_cookie_samesite: str = "lax"
     google_client_id: str = ""
     google_client_secret: str = ""
     google_redirect_uri: str = "http://localhost:8000/api/auth/google/callback"

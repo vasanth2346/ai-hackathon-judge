@@ -83,7 +83,7 @@ def decode_session(token: str | None) -> dict | None:
 
 
 def set_session(response: Response, payload: dict):
-    response.set_cookie(COOKIE_NAME, encode_session(payload), max_age=SESSION_SECONDS, httponly=True, secure=settings.auth_cookie_secure, samesite="lax", path="/")
+    response.set_cookie(COOKIE_NAME, encode_session(payload), max_age=SESSION_SECONDS, httponly=True, secure=settings.auth_cookie_secure, samesite=settings.auth_cookie_samesite, path="/")
 
 
 def require_host(proof_session: str | None = Cookie(None, alias=COOKIE_NAME)):
@@ -175,7 +175,19 @@ def auth_redirect(role: str, error: str | None = None):
 
 @app.get("/api/auth/google/status")
 def google_auth_status():
-    return {"configured": bool(settings.google_client_id and settings.google_client_secret and settings.auth_secret_key)}
+    client_id_configured = bool(settings.google_client_id.strip())
+    client_secret_configured = bool(settings.google_client_secret.strip())
+    auth_secret_configured = bool(settings.auth_secret_key.strip())
+    redirect_uri_configured = bool(settings.google_redirect_uri.strip())
+    return {
+        "configured": all((client_id_configured, client_secret_configured, auth_secret_configured, redirect_uri_configured)),
+        "checks": {
+            "google_client_id": client_id_configured,
+            "google_client_secret": client_secret_configured,
+            "auth_secret_key": auth_secret_configured,
+            "google_redirect_uri": redirect_uri_configured,
+        },
+    }
 
 
 @app.post("/api/auth/email/signup", status_code=201)
@@ -305,7 +317,7 @@ def google_auth_start(
         "code_challenge_method": "S256",
         "prompt": "select_account",
     }), status_code=302)
-    response.set_cookie("proof_oauth_state", state_cookie, max_age=600, httponly=True, secure=settings.auth_cookie_secure, samesite="lax", path="/")
+    response.set_cookie("proof_oauth_state", state_cookie, max_age=600, httponly=True, secure=settings.auth_cookie_secure, samesite=settings.auth_cookie_samesite, path="/")
     return response
 
 
@@ -377,7 +389,7 @@ async def google_auth_callback(
             "phone_verified": False,
             "exp": int(time.time()) + SESSION_SECONDS,
         })
-        response.delete_cookie("proof_oauth_state", path="/", httponly=True, secure=settings.auth_cookie_secure, samesite="lax")
+        response.delete_cookie("proof_oauth_state", path="/", httponly=True, secure=settings.auth_cookie_secure, samesite=settings.auth_cookie_samesite)
         return response
     except (httpx.HTTPError, KeyError, ValueError, TypeError):
         db.rollback()
@@ -394,8 +406,8 @@ def auth_me(proof_session: str | None = Cookie(None, alias=COOKIE_NAME)):
 
 @app.post("/api/auth/logout")
 def logout(response: Response):
-    response.delete_cookie(COOKIE_NAME, path="/", httponly=True, secure=settings.auth_cookie_secure, samesite="lax")
-    response.delete_cookie("proof_oauth_state", path="/", httponly=True, secure=settings.auth_cookie_secure, samesite="lax")
+    response.delete_cookie(COOKIE_NAME, path="/", httponly=True, secure=settings.auth_cookie_secure, samesite=settings.auth_cookie_samesite)
+    response.delete_cookie("proof_oauth_state", path="/", httponly=True, secure=settings.auth_cookie_secure, samesite=settings.auth_cookie_samesite)
     return {"ok": True}
 
 

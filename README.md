@@ -27,6 +27,34 @@ AUTH_SECRET_KEY=your-long-random-secret
 
 Then run `docker compose up --build --detach`. Google verifies each account’s email on the server. Host sign-up creates a host account; participant sign-up also links the Google account to the participant’s numeric application ID. Participant sign-in uses that same Google account.
 
+## Deploy the website on Vercel
+
+Vercel hosts the Next.js website only. The FastAPI service, Celery worker, PostgreSQL, and Redis must also be running on a backend host. In Vercel, set **Root Directory** to `frontend` and add this environment variable for Production:
+
+```dotenv
+API_PROXY_TARGET=https://YOUR-BACKEND-DOMAIN
+```
+
+Do not set `NEXT_PUBLIC_API_URL` when using this proxy. The website routes `/api/...` requests through the backend using the same website domain, which lets Google sign-in session cookies work reliably. Redeploy the Vercel project after changing environment variables.
+
+For a Render Docker web service, set its root directory to `backend/` and configure these values in **Render → your API web service → Environment** (never put secrets in Vercel):
+
+```dotenv
+FRONTEND_ORIGIN=https://YOUR-VERCEL-DOMAIN
+DATABASE_URL=postgresql+psycopg://... (use Render's internal PostgreSQL URL and replace the scheme prefix)
+REDIS_URL=redis://... (use the Redis-compatible service's internal URL)
+GOOGLE_CLIENT_ID=your-web-oauth-client-id
+GOOGLE_CLIENT_SECRET=your-web-oauth-client-secret
+GOOGLE_REDIRECT_URI=https://YOUR-VERCEL-DOMAIN/api/auth/google/callback
+AUTH_SECRET_KEY=your-long-random-secret
+AUTH_COOKIE_SECURE=true
+AUTH_COOKIE_SAMESITE=lax
+```
+
+Replace `YOUR-VERCEL-DOMAIN` with the exact production domain, without a trailing slash. In Google Cloud Console, add `https://YOUR-VERCEL-DOMAIN` as an **Authorized JavaScript origin** and `https://YOUR-VERCEL-DOMAIN/api/auth/google/callback` as an **Authorized redirect URI**. The Vercel `/api` rewrite forwards that callback to the Render API. Do not use the Render domain as the OAuth redirect URI when using this proxy. The API and worker must use the same database, Redis, encryption, Gemini, and OAuth environment settings. The frontend and API must both use HTTPS in production.
+
+After deploying, open `https://YOUR-VERCEL-DOMAIN/api/health`; a healthy response confirms Vercel is reaching the API. Then open `https://YOUR-VERCEL-DOMAIN/api/auth/google/status`. It reports which required settings are present as true/false values without returning their contents. If you update backend environment values, redeploy the Render API. If you update Vercel environment values, redeploy the Vercel project.
+
 Stop the services with `docker compose down`. The database and uploaded PDFs remain in Docker volumes. `docker compose down -v` also deletes that local data.
 
 ## Host: add a project

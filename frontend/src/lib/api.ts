@@ -1,4 +1,7 @@
-export const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+// In production, prefer a same-origin /api rewrite (API_PROXY_TARGET in
+// next.config.ts). This keeps OAuth cookies first-party on Vercel. Local Docker
+// continues to call the API directly at localhost:8000.
+export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "development" ? "http://localhost:8000" : "");
 
 export async function api<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await fetch(`${API_URL}${path}`, { ...options, credentials: "include", headers: { "Content-Type": "application/json", ...(options?.headers || {}) }, cache: "no-store" });

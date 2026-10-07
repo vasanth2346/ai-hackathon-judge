@@ -23,6 +23,7 @@ export function GoogleAuthForm({ role }: Props) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [configured, setConfigured] = useState(false);
+  const [missingOAuthSettings, setMissingOAuthSettings] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -33,8 +34,15 @@ export function GoogleAuthForm({ role }: Props) {
     if (mode === "signup") setIntent("signup");
     const errorCode = query.get("error");
     if (errorCode) window.history.replaceState({}, document.title, window.location.pathname + (mode === "signup" ? "?mode=signup" : ""));
-    api<{ configured: boolean }>("/api/auth/google/status").then(result => {
+    api<{ configured: boolean; checks?: Record<string, boolean> }>("/api/auth/google/status").then(result => {
       setConfigured(result.configured);
+      const envNames: Record<string, string> = {
+        google_client_id: "GOOGLE_CLIENT_ID",
+        google_client_secret: "GOOGLE_CLIENT_SECRET",
+        auth_secret_key: "AUTH_SECRET_KEY",
+        google_redirect_uri: "GOOGLE_REDIRECT_URI",
+      };
+      setMissingOAuthSettings(Object.entries(result.checks || {}).filter(([, present]) => !present).map(([name]) => envNames[name] || name));
       if (result.configured && errorCode) setError(errors[errorCode] || "Sign-in failed. Please try again.");
     }).catch(() => setConfigured(false)).finally(() => setLoading(false));
   }, []);
@@ -62,7 +70,7 @@ export function GoogleAuthForm({ role }: Props) {
       <button className="primary-btn auth-submit" type="submit" disabled={busy}>{busy ? "Please wait…" : intent === "signin" ? "Sign in with email" : "Create account with email"}</button>
     </form>
     <div className="auth-or"><span>OR</span></div>
-    {!loading && !configured && <div className="auth-setup-note">Google sign-in is not configured. You can still use email and password.</div>}
+    {!loading && !configured && <div className="auth-setup-note">Google sign-in is not configured. You can still use email and password.{missingOAuthSettings.length > 0 && <> Missing on the backend: {missingOAuthSettings.join(", ")}.</>}</div>}
     <button className="google-button" type="button" onClick={beginGoogle} disabled={loading || !configured}><GoogleMark/>{loading ? "Checking Google sign-in…" : intent === "signin" ? "Continue with Google" : "Sign up with Google"}</button>
     <Link className="auth-switch" href={role === "host" ? "/participant-login" : "/host-login"}>{role === "host" ? "Participant sign in / sign up" : "Host sign in / sign up"}</Link>
   </section></main>;
