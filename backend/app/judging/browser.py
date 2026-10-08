@@ -32,6 +32,8 @@ def classify_product_surface(url: str, title: str, visible_text: str) -> tuple[b
     host = (parsed.hostname or "").lower()
     title_lower = title.lower()
     text_lower = re.sub(r"\s+", " ", visible_text).strip().lower()
+    if (host in {"vercel.com", "app.vercel.com"} and (parsed.path.lower().startswith(("/login", "/signup", "/sso-api")) or "sign in" in title_lower)):
+        return None, "The deployment redirected to Vercel authentication; the participant application itself was not publicly visible."
     if host in {"vercel.com", "app.vercel.com"} and (
         "overview" in title_lower or "project settings" in title_lower or len(parsed.path.strip("/").split("/")) >= 2
     ):
@@ -43,7 +45,7 @@ def classify_product_surface(url: str, title: str, visible_text: str) -> tuple[b
     }
     if host in control_hosts:
         return False, "This URL opens a hosting or cloud control panel, not the deployed participant application."
-    login_only = len(text_lower) < 100 and bool(re.search(r"\b(sign in|log in|login|authenticate)\b", title_lower + " " + text_lower))
+    login_only = bool(re.search(r"\b(sign in|log in|login|authenticate|continue with google|continue with github)\b", title_lower + " " + text_lower)) and bool(re.search(r"\b(email|password|account|identity provider|authentication)\b", text_lower))
     if login_only:
         return None, "Only a sign-in screen was visible; the participant application could not be verified."
     if len(text_lower) < 30:

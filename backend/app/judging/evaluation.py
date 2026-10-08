@@ -4,11 +4,11 @@ import re
 from app.judging.llm import optional_assessment
 
 RUBRIC = [
-    ("functionality", "Working Functionality", 30),
+    ("functionality", "Working Functionality", 25),
     ("problem_fit", "Problem Fit", 20),
     ("technical", "Technical Complexity", 10),
     ("ui_ux", "UI/UX & Usability", 10),
-    ("innovation", "Innovation & Originality", 20),
+    ("innovation", "Innovation & Originality", 25),
     ("real_world", "Real-World Problem Potential", 10),
 ]
 
@@ -207,7 +207,7 @@ def score_report(submission: dict, observations: list, evidence: list, github: d
     strengths = []
     weaknesses = []
     deductions = []
-    function_penalty_total = round(min(2.5, len(failed) * 0.7) * 30 / 10, 1)
+    function_penalty_total = round(min(2.5, len(failed) * 0.7) * 25 / 10, 1)
     ui_errors = [item for item in failed if item.get("kind") in {"runtime_error", "network_error"}]
     ui_penalty_total = round(min(2.0, len(ui_errors) * 0.8) * 10 / 10, 1)
     for ob in browser:

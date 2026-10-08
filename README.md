@@ -12,7 +12,7 @@ Requirements: Docker Desktop and Docker Compose.
 docker compose up --build --detach
 ```
 
-Open [http://localhost:3000](http://localhost:3000) for the public dashboard. Hosts and participants create accounts or sign in with Google. PostgreSQL stores accounts, submissions, and reports; Redis and a Celery worker run browser evaluations in the background.
+Open [http://localhost:3000](http://localhost:3000) for the public dashboard. Hosts use provisioned email/password accounts. Participants create accounts or sign in with Google. PostgreSQL stores accounts, submissions, and reports; Redis and a Celery worker run browser evaluations in the background.
 
 Each host has a separate registration roster and project dashboard. Hosts can import a searchable PDF, CSV, or Excel `.xlsx`/`.xlsm` roster with participant names and email addresses (phone is optional). Participants sign in with Google; the verified email matches their host-owned registration, and their submission is saved under that same host. A participant email must not be present in multiple host rosters because it would make the destination ambiguous.
 
@@ -27,7 +27,9 @@ GOOGLE_REDIRECT_URI=http://localhost:8000/api/auth/google/callback
 AUTH_SECRET_KEY=your-long-random-secret
 ```
 
-Then run `docker compose up --build --detach`. Google verifies each account’s email on the server. Host sign-up creates a host account. Participant sign-up and sign-in use the same verified Google email to find the participant’s host-owned roster record.
+Then run `docker compose up --build --detach`. Google verifies participant email on the server. Participant sign-up and sign-in use the same verified Google email to find the participant’s host-owned roster record. Hosts do not use Google sign-in or self-sign-up.
+
+Configure host credentials in the ignored local `.env` file and in the backend deployment environment. Use `HOST_LOGIN_1_EMAIL`, `HOST_LOGIN_1_PASSWORD`, `HOST_LOGIN_2_EMAIL`, and `HOST_LOGIN_2_PASSWORD`. These values are secrets and must not be committed to the repository. Only the configured host emails can sign in.
 
 ## Deploy the website on Vercel
 
@@ -51,11 +53,15 @@ GOOGLE_REDIRECT_URI=https://YOUR-VERCEL-DOMAIN/api/auth/google/callback
 AUTH_SECRET_KEY=your-long-random-secret
 AUTH_COOKIE_SECURE=true
 AUTH_COOKIE_SAMESITE=lax
+HOST_LOGIN_1_EMAIL=host-account-one@example.edu
+HOST_LOGIN_1_PASSWORD=use-a-private-password
+HOST_LOGIN_2_EMAIL=host-account-two@example.edu
+HOST_LOGIN_2_PASSWORD=use-a-private-password
 ```
 
 Replace `YOUR-VERCEL-DOMAIN` with the exact production domain, without a trailing slash. In Google Cloud Console, add `https://YOUR-VERCEL-DOMAIN` as an **Authorized JavaScript origin** and `https://YOUR-VERCEL-DOMAIN/api/auth/google/callback` as an **Authorized redirect URI**. The Vercel `/api` rewrite forwards that callback to the Render API. Do not use the Render domain as the OAuth redirect URI when using this proxy. The API and worker must use the same database, Redis, encryption, Gemini, and OAuth environment settings. The frontend and API must both use HTTPS in production.
 
-After deploying, open `https://YOUR-VERCEL-DOMAIN/api/health`; a healthy response confirms Vercel is reaching the API. Then open `https://YOUR-VERCEL-DOMAIN/api/auth/google/status`. It reports which required settings are present as true/false values without returning their contents. If you update backend environment values, redeploy the Render API. If you update Vercel environment values, redeploy the Vercel project.
+After deploying, open `https://YOUR-VERCEL-DOMAIN/api/health`; a healthy response confirms Vercel is reaching the API. Open `https://YOUR-VERCEL-DOMAIN/api/auth/google/status` to check OAuth configuration without revealing secret values. The host dashboard also shows whether an AI provider and API key are configured. If you update backend environment values, redeploy the Render API. If you update Vercel environment values, redeploy the Vercel project.
 
 Stop the services with `docker compose down`. The database and uploaded PDFs remain in Docker volumes. `docker compose down -v` also deletes that local data.
 
@@ -63,7 +69,7 @@ Stop the services with `docker compose down`. The database and uploaded PDFs rem
 
 Upload a searchable PDF, CSV, or Excel `.xlsx`/`.xlsm` roster containing participant name and email columns. Phone is optional. Each participant email must identify a single host roster so submissions go to the correct host. Scanned/image-only PDFs are not supported.
 
-Participants sign in with the Google account matching the roster email. Their name and contact details load from the roster; they enter the project name, live URL, GitHub repository, problem statement, and description. A submission appears only in its roster owner’s host dashboard.
+Participants sign in with the Google account matching the roster email. They verify their profile and select a domain, then enter the project name, live URL, GitHub repository, problem statement, and description. A submission appears only in its roster owner’s host dashboard. Participant dashboards show submission status and project details, not evaluation scores or judge feedback. Hosts can retry an unfinished evaluation after 15 minutes.
 
 The deployed URL is the primary source for behavioral and usability evidence. GitHub manifests are used to verify technical indicators; README assertions are not counted as proof. Browser testing is read-only for potentially consequential actions: the judge does not submit valid forms, delete data, or make purchases.
 
@@ -71,11 +77,11 @@ The deployed URL is the primary source for behavioral and usability evidence. Gi
 
 | Criterion | Weight |
 |---|---:|
-| Working Functionality | 30% |
+| Working Functionality | 25% |
 | Problem Fit | 20% |
 | Technical Complexity | 10% |
 | UI/UX & Usability | 10% |
-| Innovation & Originality | 20% |
+| Innovation & Originality | 25% |
 | Real-World Problem Potential | 10% |
 | **Total** | **100%** |
 
@@ -89,7 +95,7 @@ The app does not include or automatically use an API key. Without a configured k
 LLM_PROVIDER=google
 LLM_BASE_URL=https://generativelanguage.googleapis.com/v1beta
 LLM_API_KEY=your-google-ai-studio-key
-LLM_MODEL=gemini-2.5-flash
+LLM_MODEL=gemini-3.8-flash
 ```
 
 Then restart the app with `docker compose up --build --detach api worker`. Keep the key in `.env`; do not commit it or paste it into source files. Gemini assessments are accepted only when their evidence references match observations recorded by the browser run. A model can still make mistakes, so human review remains available in the report.

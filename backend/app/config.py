@@ -13,13 +13,18 @@ class Settings(BaseSettings):
     llm_provider: str = "none"
     llm_base_url: str = "https://generativelanguage.googleapis.com/v1beta"
     llm_api_key: str = ""
-    llm_model: str = "gemini-2.5-flash"
+    llm_model: str = "gemini-3.8-flash"
     auth_secret_key: str = ""
     auth_cookie_secure: bool = False
     auth_cookie_samesite: str = "lax"
     google_client_id: str = ""
     google_client_secret: str = ""
     google_redirect_uri: str = "http://localhost:8000/api/auth/google/callback"
+    host_login_1_email: str = ""
+    host_login_1_password: str = ""
+    host_login_2_email: str = ""
+    host_login_2_password: str = ""
+    judge_stale_after_seconds: int = 900
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

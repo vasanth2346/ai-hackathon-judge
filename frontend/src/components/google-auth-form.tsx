@@ -7,6 +7,7 @@ import { API_URL, api } from "@/lib/api";
 type Role = "host" | "participant";
 type Props = { role: Role };
 const errors: Record<string, string> = {
+  host_google_disabled: "Host accounts use Host Login with the credentials provisioned by the event administrator.",
   google_not_configured: "Google sign-in is not set up yet. Add the OAuth client ID and secret to .env.",
   account_not_found: "No account found for this Google account. Choose sign up first.",
   account_role_mismatch: "This Google account is registered for the other account type.",
@@ -26,13 +27,15 @@ export function GoogleAuthForm({ role }: Props) {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const hostRole = role === "host";
 
   useEffect(() => {
     const query = new URLSearchParams(window.location.search);
     const mode = query.get("mode");
-    if (mode === "signup") setIntent("signup");
+    if (mode === "signup" && !hostRole) setIntent("signup");
     const errorCode = query.get("error");
     if (errorCode) window.history.replaceState({}, document.title, window.location.pathname + (mode === "signup" ? "?mode=signup" : ""));
+    if (hostRole) { setConfigured(false); setLoading(false); return; }
     api<{ configured: boolean; checks?: Record<string, boolean> }>("/api/auth/google/status").then(result => {
       setConfigured(result.configured);
       const envNames: Record<string, string> = {
@@ -44,7 +47,7 @@ export function GoogleAuthForm({ role }: Props) {
       setMissingOAuthSettings(Object.entries(result.checks || {}).filter(([, present]) => !present).map(([name]) => envNames[name] || name));
       if (result.configured && errorCode) setError(errors[errorCode] || "Sign-in failed. Please try again.");
     }).catch(() => setConfigured(false)).finally(() => setLoading(false));
-  }, []);
+  }, [hostRole]);
 
   function beginGoogle() {
     setError("");
@@ -60,18 +63,18 @@ export function GoogleAuthForm({ role }: Props) {
     } catch (e) { setError(e instanceof Error ? e.message : "Could not sign in"); setBusy(false); }
   }
 
-  return <main className="auth-page"><section className="auth-card"><Link className="brand auth-brand" href="/"><span className="brand-icon">P</span><span>proof<span className="brand-dot">.</span><small>HACKATHON JUDGE</small></span></Link><h1>{role === "host" ? "Host account" : "Participant account"}</h1><p>{role === "host" ? "Manage projects and evaluations." : "Access your registration and submit your project."}</p>
-    <div className="auth-tabs" role="tablist"><button type="button" role="tab" aria-selected={intent === "signin"} className={intent === "signin" ? "selected" : ""} onClick={() => { setIntent("signin"); setError(""); }}>Sign in</button><button type="button" role="tab" aria-selected={intent === "signup"} className={intent === "signup" ? "selected" : ""} onClick={() => { setIntent("signup"); setError(""); }}>Sign up</button></div>
+  return <main className="auth-page"><section className="auth-card"><Link className="brand auth-brand" href="/"><span className="brand-icon">P</span><span>proof<span className="brand-dot">.</span><small>HACKATHON JUDGE</small></span></Link><h1>{hostRole ? "Host login" : "Participant account"}</h1><p>{hostRole ? "Sign in to manage projects and evaluations." : "Access your registration and submit your project."}</p>
+    {!hostRole && <div className="auth-tabs" role="tablist"><button type="button" role="tab" aria-selected={intent === "signin"} className={intent === "signin" ? "selected" : ""} onClick={() => { setIntent("signin"); setError(""); }}>Sign in</button><button type="button" role="tab" aria-selected={intent === "signup"} className={intent === "signup" ? "selected" : ""} onClick={() => { setIntent("signup"); setError(""); }}>Sign up</button></div>}
     <form onSubmit={submitEmail}>
       <div className="field"><label htmlFor="account-email">Email</label><input id="account-email" type="email" autoComplete="email" value={email} onChange={e=>setEmail(e.target.value)} required /></div>
       <div className="field"><label htmlFor="account-password">Password</label><input id="account-password" type="password" autoComplete={intent === "signup" ? "new-password" : "current-password"} minLength={intent === "signup" ? 8 : undefined} value={password} onChange={e=>setPassword(e.target.value)} placeholder={intent === "signup" ? "At least 8 characters" : "Your password"} required /></div>
       {error && <div className="error-banner">{error}</div>}
-      <button className="primary-btn auth-submit" type="submit" disabled={busy}>{busy ? "Please wait…" : intent === "signin" ? "Sign in with email" : "Create account with email"}</button>
+      <button className="primary-btn auth-submit" type="submit" disabled={busy}>{busy ? "Please wait…" : hostRole ? "Host Login" : intent === "signin" ? "Sign in with email" : "Create account with email"}</button>
     </form>
-    <div className="auth-or"><span>OR</span></div>
+    {!hostRole && <><div className="auth-or"><span>OR</span></div>
     {!loading && !configured && <div className="auth-setup-note">Google sign-in is not configured. You can still use email and password.{missingOAuthSettings.length > 0 && <> Missing on the backend: {missingOAuthSettings.join(", ")}.</>}</div>}
     <button className="google-button" type="button" onClick={beginGoogle} disabled={loading || !configured}><GoogleMark/>{loading ? "Checking Google sign-in…" : intent === "signin" ? "Continue with Google" : "Sign up with Google"}</button>
-    <Link className="auth-switch" href={role === "host" ? "/participant-login" : "/host-login"}>{role === "host" ? "Participant sign in / sign up" : "Host sign in / sign up"}</Link>
+    <Link className="auth-switch" href="/host-login">Host Login</Link></>}
   </section></main>;
 }
 

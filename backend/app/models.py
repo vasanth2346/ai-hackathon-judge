@@ -22,6 +22,8 @@ class Submission(Base):
     team_name: Mapped[str | None] = mapped_column(String(160), nullable=True)
     participant_names: Mapped[list] = mapped_column(JSON, nullable=False)
     deployed_url: Mapped[str] = mapped_column(String(2048), nullable=False)
+    domain: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    open_innovation_details: Mapped[str | None] = mapped_column(Text, nullable=True)
     problem_statement: Mapped[str] = mapped_column(Text, nullable=False)
     solution_description: Mapped[str] = mapped_column(Text, nullable=False)
     core_features: Mapped[list | None] = mapped_column(JSON, nullable=True)
@@ -56,6 +58,7 @@ class ParticipantRegistration(Base):
     participant_name: Mapped[str] = mapped_column(String(200), nullable=False)
     phone: Mapped[str] = mapped_column(String(60), nullable=False, default="")
     email: Mapped[str | None] = mapped_column(String(320), nullable=True, index=True)
+    domain: Mapped[str | None] = mapped_column(String(80), nullable=True)
     college_name: Mapped[str] = mapped_column(String(240), nullable=False, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, nullable=False)
 

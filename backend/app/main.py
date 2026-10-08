@@ -42,8 +42,11 @@ with engine.begin() as connection:
     connection.execute(text("ALTER TABLE google_accounts ADD COLUMN IF NOT EXISTS password_hash VARCHAR(255)"))
     connection.execute(text("ALTER TABLE participant_registrations ADD COLUMN IF NOT EXISTS phone VARCHAR(60) NOT NULL DEFAULT ''"))
     connection.execute(text("ALTER TABLE participant_registrations ADD COLUMN IF NOT EXISTS email VARCHAR(320)"))
+    connection.execute(text("ALTER TABLE participant_registrations ADD COLUMN IF NOT EXISTS domain VARCHAR(80)"))
+    connection.execute(text("ALTER TABLE participant_registrations ADD COLUMN IF NOT EXISTS open_innovation_details TEXT"))
     connection.execute(text("ALTER TABLE participant_registrations ADD COLUMN IF NOT EXISTS host_account_id VARCHAR(36)"))
     connection.execute(text("ALTER TABLE submissions ADD COLUMN IF NOT EXISTS host_account_id VARCHAR(36)"))
+    connection.execute(text("ALTER TABLE submissions ADD COLUMN IF NOT EXISTS domain VARCHAR(80)"))
     connection.execute(text("CREATE INDEX IF NOT EXISTS ix_participant_registrations_host_account_id ON participant_registrations (host_account_id)"))
     connection.execute(text("CREATE INDEX IF NOT EXISTS ix_submissions_host_account_id ON submissions (host_account_id)"))
     # Keep existing local data visible to the first host account after enabling
@@ -58,6 +61,15 @@ HOST_COOKIE_NAME = "proof_host_session"
 PARTICIPANT_COOKIE_NAME = "proof_participant_session"
 LEGACY_COOKIE_NAME = "proof_session"
 SESSION_SECONDS = 8 * 60 * 60
+PARTICIPANT_DOMAINS = {
+    "AI for Healthcare",
+    "AI for Agriculture",
+    "AI for Finance",
+    "AI for Cybersecurity",
+    "AI for Biotech & Deep Tech",
+    "AI for Computer Vision",
+    "Open Innovation",
+}
 
 
 def encode_session(payload: dict) -> str:
@@ -165,7 +177,7 @@ def run_view(run: JudgeRun):
 
 
 def submission_view(submission: Submission, latest: JudgeRun | None = None):
-    return {"id": submission.id, "application_number": submission.application_number, "project_name": submission.project_name, "participant_names": submission.participant_names, "deployed_url": submission.deployed_url, "problem_statement": submission.problem_statement, "solution_description": submission.solution_description, "source_pdf_available": bool(submission.source_pdf_file), "github_url": submission.github_url, "documentation_url": submission.documentation_url, "ai_tools_metadata": submission.ai_tools_metadata, "created_at": submission.created_at.isoformat() if submission.created_at else None, "latest_run": run_view(latest) if latest else None}
+    return {"id": submission.id, "application_number": submission.application_number, "project_name": submission.project_name, "participant_names": submission.participant_names, "deployed_url": submission.deployed_url, "domain": submission.domain, "problem_statement": submission.problem_statement, "solution_description": submission.solution_description, "source_pdf_available": bool(submission.source_pdf_file), "github_url": submission.github_url, "documentation_url": submission.documentation_url, "ai_tools_metadata": submission.ai_tools_metadata, "created_at": submission.created_at.isoformat() if submission.created_at else None, "latest_run": run_view(latest) if latest else None}
 
 
 @app.get("/api/health")
@@ -216,6 +228,8 @@ def email_signup(payload: dict, response: Response, db: Session = Depends(get_db
     if role not in {"host", "participant"}:
         raise HTTPException(422, "Choose host or participant sign up")
     email = normalized_email(str(payload.get("email", "")))
+    if role == "host":
+        raise HTTPException(403, "Host accounts are provisioned by the event administrator. Use Host Login.")
     password = str(payload.get("password", ""))
     if len(password) < 8:
         raise HTTPException(422, "Password must be at least 8 characters")
@@ -243,6 +257,28 @@ def email_signin(payload: dict, response: Response, db: Session = Depends(get_db
     if role not in {"host", "participant"}:
         raise HTTPException(422, "Choose host or participant sign in")
     email = normalized_email(str(payload.get("email", "")))
+    if role == "host":
+        configured_hosts = []
+        for host_email, host_password in ((settings.host_login_1_email, settings.host_login_1_password), (settings.host_login_2_email, settings.host_login_2_password)):
+            if host_email.strip() and host_password.strip():
+                configured_hosts.append((normalized_email(host_email), host_password))
+        configured_password = next((host_password for host_email, host_password in configured_hosts if host_email == email), None)
+        if not configured_password:
+            raise HTTPException(401, "Email or password is incorrect")
+        account = db.query(GoogleAccount).filter(GoogleAccount.email == email, GoogleAccount.role == "host").first()
+        if not account:
+            account = GoogleAccount(email=email, password_hash=password_digest(configured_password), email_verified=True, role="host", application_number=None)
+            db.add(account)
+            db.commit()
+            db.refresh(account)
+        elif not password_matches(configured_password, account.password_hash):
+            account.password_hash = password_digest(configured_password)
+            account.email_verified = True
+            db.commit()
+        if not password_matches(str(payload.get("password", "")), account.password_hash):
+            raise HTTPException(401, "Email or password is incorrect")
+        issue_account_session(response, account, db)
+        return {"role": role, "email": email}
     account = db.query(GoogleAccount).filter(GoogleAccount.email == email, GoogleAccount.role == role).first()
     if not account or not password_matches(str(payload.get("password", "")), account.password_hash):
         raise HTTPException(401, "Email or password is incorrect")
@@ -258,7 +294,7 @@ async def upload_registration_pdf(
 ):
     contents = await pdf.read(10_000_001)
     if len(contents) > 10_000_000:
-        raise HTTPException(413, "Registration file must be 10 MB or smaller")
+        raise HTTPException(413, "Registration document must be 10 MB or smaller")
     filename = (pdf.filename or "registrations").replace("\\", "/").split("/")[-1][:255]
     extension = Path(filename).suffix.lower()
     if extension not in {".pdf", ".csv", ".tsv", ".xlsx", ".xlsm"}:
@@ -318,7 +354,7 @@ async def upload_registration_pdf(
     db.add(upload_record)
     db.commit()
     email_missing_count = sum(1 for row in results if not row.email)
-    return {"uploaded": True, "participant_count": len(results), "created_count": created, "updated_count": updated, "skipped_count": skipped_count, "email_missing_count": email_missing_count, "status_lines": ["Registration file uploaded successfully.", f"{len(results)} participants found; {email_missing_count} missing email; {skipped_count} unreadable rows."]}
+    return {"uploaded": True, "participant_count": len(results), "created_count": created, "updated_count": updated, "skipped_count": skipped_count, "email_missing_count": email_missing_count, "status_lines": ["Registration document uploaded successfully.", f"{len(results)} participants found; {email_missing_count} missing email; {skipped_count} unreadable rows."]}
 
 
 @app.get("/api/host/registrations")
@@ -334,6 +370,8 @@ def google_auth_start(
     application_number: str | None = None,
     db: Session = Depends(get_db),
 ):
+    if role == "host":
+        return auth_redirect("host", "host_google_disabled")
     if not settings.google_client_id or not settings.google_client_secret or not settings.auth_secret_key:
         return auth_redirect(role, "google_not_configured")
     application_number = None
@@ -372,6 +410,8 @@ async def google_auth_callback(
 ):
     oauth = decode_session(proof_oauth_state)
     role = oauth.get("role") if oauth and oauth.get("role") in {"host", "participant"} else "host"
+    if role == "host":
+        return auth_redirect("host", "host_google_disabled")
     if not oauth or not state or not secrets.compare_digest(str(oauth.get("state", "")), state):
         return auth_redirect(role, "oauth_state_invalid")
     if provider_error or not code or not settings.google_client_id or not settings.google_client_secret:
@@ -449,6 +489,13 @@ def auth_me(
     session = decode_session(host_session) or decode_session(participant_session) or decode_session(legacy_session)
     if not session:
         raise HTTPException(401, "Sign in required")
+    if session.get("role") == "host":
+        account_id = session.get("account_id")
+        configured_emails = {value.strip().lower() for value in (settings.host_login_1_email, settings.host_login_2_email) if value.strip()}
+        if not configured_emails:
+            return {"role": "host", "email": session.get("email")}
+        if str(session.get("email", "")).strip().lower() not in configured_emails:
+            raise HTTPException(401, "Host account is no longer authorized")
     return {"role": session.get("role"), "email": session.get("email")}
 
 
@@ -483,11 +530,10 @@ def participant_details(session: dict = Depends(require_participant), db: Sessio
             else "No host registration matches this Google email. Ask the host to add this email to their roster."
         )
         return {
-            "linked": False, "application_number": None, "participant_name": "", "phone": "",
-            "email": email, "college_name": "", "project_name": "", "problem_statement": "",
+            "linked": False, "needs_profile": False, "application_number": None, "participant_name": "", "phone": "",
+            "email": email, "domain": None, "college_name": "", "project_name": "", "problem_statement": "",
             "solution_description": "", "deployed_url": "", "github_url": None,
-            "has_submission": False, "evaluation_status": "not_started", "total_score": None,
-            "confidence": None, "report": None,
+            "has_submission": False, "evaluation_status": "not_started",
             "registration_message": registration_message,
         }
     application_number = registration.application_number
@@ -496,13 +542,13 @@ def participant_details(session: dict = Depends(require_participant), db: Sessio
         db.commit()
     submission = db.query(Submission).options(selectinload(Submission.runs)).filter(Submission.application_number == application_number).first()
     latest = sorted(submission.runs, key=lambda r: r.created_at or datetime.min.replace(tzinfo=timezone.utc), reverse=True)[0] if submission and submission.runs else None
-    report = latest.report if latest and latest.status == "completed" else None
     return {
         "linked": True,
+        "needs_profile": not bool(registration.domain),
         "application_number": application_number,
         "participant_name": registration.participant_name if registration else (submission.participant_names[0] if submission.participant_names else ""),
         "phone": registration.phone if registration else "",
-        "email": registration.email if registration and registration.email else session.get("email", ""),
+        "email": account.email if account else session.get("email", ""),
         "college_name": registration.college_name if registration else "",
         "project_name": submission.project_name if submission else "",
         "problem_statement": submission.problem_statement if submission else "",
@@ -510,13 +556,39 @@ def participant_details(session: dict = Depends(require_participant), db: Sessio
         # not exposed in the participant dashboard response.
         "deployed_url": submission.deployed_url if submission else "",
         "github_url": submission.github_url if submission else None,
+        "domain": (submission.domain or registration.domain) if submission else registration.domain,
         "has_submission": bool(submission),
         "evaluation_status": latest.status if latest else "not_started",
-        "total_score": latest.total_score if latest and latest.status == "completed" else None,
-        "confidence": latest.confidence if latest and latest.status == "completed" else None,
-        "report": report,
         "registration_message": "",
     }
+
+
+@app.post("/api/participant/verify-registration")
+def verify_participant_registration(
+    participant_name: str = Form(..., min_length=2, max_length=200),
+    phone: str = Form(..., min_length=7, max_length=60),
+    domain: str = Form(..., min_length=2, max_length=80),
+    open_innovation_details: str = Form("", max_length=4000),
+    session: dict = Depends(require_participant),
+    db: Session = Depends(get_db),
+):
+    account = db.get(GoogleAccount, session.get("account_id"))
+    if not account or account.role != "participant" or not account.email_verified:
+        raise HTTPException(403, "Sign in with the verified email from the host’s registration document")
+    registration = participant_registration_for_email(account.email, db)
+    if not registration:
+        raise HTTPException(403, "This verified email is not listed in a host’s registration document")
+    if domain not in PARTICIPANT_DOMAINS:
+        raise HTTPException(422, "Choose one of the listed project domains")
+    if domain == "Open Innovation" and len(open_innovation_details.strip()) < 10:
+        raise HTTPException(422, "Describe the project you are working on for Open Innovation")
+    registration.participant_name = participant_name.strip()
+    registration.phone = phone.strip()
+    registration.domain = domain
+    registration.open_innovation_details = open_innovation_details.strip() if domain == "Open Innovation" else None
+    account.application_number = registration.application_number
+    db.commit()
+    return {"verified": True, "email": account.email}
 
 
 @app.post("/api/participant/submission", status_code=201)
@@ -525,7 +597,7 @@ def participant_submission(
     deployed_url: str = Form(..., min_length=8, max_length=2048),
     github_url: str = Form(..., min_length=8, max_length=2048),
     problem_statement: str = Form(..., min_length=10, max_length=4000),
-    solution_description: str = Form(..., min_length=10, max_length=4000),
+    solution_description: str = Form("", max_length=4000),
     session: dict = Depends(require_participant),
     db: Session = Depends(get_db),
 ):
@@ -541,7 +613,10 @@ def participant_submission(
         raise HTTPException(409, "A project has already been submitted for this registration ID")
     validate_external_url(deployed_url)
     validate_external_url(github_url, {"github.com"})
-    submission = Submission(application_number=application_number, host_account_id=registration.host_account_id, project_name=project_name.strip(), team_name=None, participant_names=[registration.participant_name], deployed_url=deployed_url.strip(), problem_statement=problem_statement.strip(), solution_description=solution_description.strip(), core_features=None, github_url=github_url.strip(), ai_tools_metadata=[])
+    project_description = solution_description.strip()
+    if registration.open_innovation_details:
+        project_description = (project_description + "\n\nOpen Innovation project details: " + registration.open_innovation_details).strip()
+    submission = Submission(application_number=application_number, host_account_id=registration.host_account_id, project_name=project_name.strip(), team_name=None, participant_names=[registration.participant_name], deployed_url=deployed_url.strip(), domain=registration.domain, problem_statement=problem_statement.strip(), solution_description=project_description, core_features=None, github_url=github_url.strip(), ai_tools_metadata=[])
     db.add(submission)
     db.commit()
     db.refresh(submission)
@@ -656,9 +731,23 @@ def start_judging(submission_id: str, _host: dict = Depends(require_host), db: S
     submission = db.query(Submission).filter(Submission.id == submission_id, Submission.host_account_id == _host.get("account_id")).first()
     if not submission:
         raise HTTPException(404, "Submission not found")
-    active = db.query(JudgeRun).filter(JudgeRun.submission_id == submission_id, JudgeRun.status.in_(["queued", "running"])).first()
+    active = db.query(JudgeRun).filter(JudgeRun.submission_id == submission_id, JudgeRun.status.in_(["queued", "running"])).order_by(JudgeRun.created_at.desc()).first()
     if active:
-        return run_view(active)
+        now = datetime.now(timezone.utc)
+        reference_time = active.started_at or active.created_at
+        if reference_time:
+            if reference_time.tzinfo is None:
+                reference_time = reference_time.replace(tzinfo=timezone.utc)
+            age_seconds = (now - reference_time).total_seconds()
+        else:
+            age_seconds = 0
+        if age_seconds < settings.judge_stale_after_seconds:
+            raise HTTPException(409, "This evaluation is still active. Re-evaluation becomes available after 15 minutes without completion.")
+        active.status = "failed"
+        active.phase = "Timed out; re-evaluation requested"
+        active.error_message = "This run did not finish within the retry window. A new evaluation was requested."
+        active.completed_at = now
+        db.commit()
     run = JudgeRun(submission_id=submission_id, status="queued", phase="Waiting for judge worker", progress=0, observations=[], evidence=[], review_flags=[])
     db.add(run)
     db.commit()
@@ -672,6 +761,14 @@ def start_judging(submission_id: str, _host: dict = Depends(require_host), db: S
         db.commit()
         raise HTTPException(503, run.error_message) from exc
     return run_view(run)
+
+
+@app.get("/api/judge/status")
+def judge_configuration_status(_host: dict = Depends(require_host)):
+    provider = settings.llm_provider.lower()
+    supported = provider in {"openai", "openai-compatible", "google", "gemini"}
+    configured = bool(settings.llm_api_key.strip())
+    return {"provider": provider, "model": settings.llm_model, "key_configured": configured, "ai_assessment_configured": supported and configured}
 
 
 @app.get("/api/runs/{run_id}")
@@ -700,6 +797,8 @@ def leaderboard(_host: dict = Depends(require_host), db: Session = Depends(get_d
     latest_by_submission = {}
     for run in runs:
         if run.submission_id in latest_by_submission:
+            continue
+        if not run.report or run.report.get("score_status") != "automated":
             continue
         submission = db.get(Submission, run.submission_id)
         if not submission:
