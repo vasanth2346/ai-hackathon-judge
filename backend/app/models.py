@@ -91,6 +91,8 @@ class JudgeRun(Base):
     review_flags: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     error_message: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, nullable=False)
+    queued_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=now_utc)
+    retry_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     submission: Mapped[Submission] = relationship(back_populates="runs")

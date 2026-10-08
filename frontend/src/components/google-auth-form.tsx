@@ -58,14 +58,14 @@ export function GoogleAuthForm({ role }: Props) {
   async function submitEmail(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setBusy(true); setError("");
     try {
-      await api(`/api/auth/email/${intent}`, { method: "POST", body: JSON.stringify({ role, email, password }) });
+      const result = await api<{ role: Role }>(`/api/auth/email/${intent}`, { method: "POST", body: JSON.stringify({ role, email, password }) });
+      if (result.role !== role) throw new Error("This account signed in with a different account type. Please use the matching login page.");
       router.replace(role === "host" ? "/host-dashboard" : "/participant");
     } catch (e) { setError(e instanceof Error ? e.message : "Could not sign in"); setBusy(false); }
   }
 
   return <main className="auth-page"><section className="auth-card"><Link className="brand auth-brand" href="/"><span className="brand-icon">P</span><span>proof<span className="brand-dot">.</span><small>HACKATHON JUDGE</small></span></Link><h1>{hostRole ? "Host login" : "Participant account"}</h1><p>{hostRole ? "Sign in to manage projects and evaluations." : "Access your registration and submit your project."}</p>
     {!hostRole && <div className="auth-tabs" role="tablist"><button type="button" role="tab" aria-selected={intent === "signin"} className={intent === "signin" ? "selected" : ""} onClick={() => { setIntent("signin"); setError(""); }}>Sign in</button><button type="button" role="tab" aria-selected={intent === "signup"} className={intent === "signup" ? "selected" : ""} onClick={() => { setIntent("signup"); setError(""); }}>Sign up</button></div>}
-    {!hostRole && intent === "signup" && <div className="auth-setup-note">Use the email listed in a host’s uploaded registration document. Matching that roster is required to create a participant account.</div>}
     <form onSubmit={submitEmail}>
       <div className="field"><label htmlFor="account-email">Email</label><input id="account-email" type="email" autoComplete="email" value={email} onChange={e=>setEmail(e.target.value)} required /></div>
       <div className="field"><label htmlFor="account-password">Password</label><input id="account-password" type="password" autoComplete={intent === "signup" ? "new-password" : "current-password"} minLength={intent === "signup" ? 8 : undefined} value={password} onChange={e=>setPassword(e.target.value)} placeholder={intent === "signup" ? "At least 8 characters" : "Your password"} required /></div>

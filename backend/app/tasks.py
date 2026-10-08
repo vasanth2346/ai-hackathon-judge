@@ -2,6 +2,7 @@ import json
 from datetime import datetime, timezone
 
 from celery import Celery
+from sqlalchemy import select
 
 from app.config import get_settings
 from app.database import SessionLocal
@@ -18,8 +19,14 @@ celery_app.conf.update(task_track_started=True, task_serializer="json", result_s
 def evaluate_submission(self, run_id: str):
     db = SessionLocal()
     try:
-        run = db.get(JudgeRun, run_id)
+        # Claim a queued run under a row lock so a delayed watchdog delivery and
+        # the original queue message can never evaluate the same project twice.
+        run = db.execute(
+            select(JudgeRun).where(JudgeRun.id == run_id).with_for_update()
+        ).scalar_one_or_none()
         if not run:
+            return
+        if run.status != "queued":
             return
         submission = db.get(Submission, run.submission_id)
         if not submission:
@@ -66,6 +73,7 @@ def evaluate_submission(self, run_id: str):
                 run.phase = "Retry scheduled"
                 run.progress = 0
                 run.completed_at = None
+                run.queued_at = datetime.now(timezone.utc)
             else:
                 run.status = "failed"
                 run.phase = "Evaluation failed"

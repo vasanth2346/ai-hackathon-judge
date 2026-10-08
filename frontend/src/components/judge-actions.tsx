@@ -25,7 +25,9 @@ export function JudgeActions({ submissionId, onComplete }: Props) {
     } catch (e) {
       const message = e instanceof Error ? e.message : "Could not start evaluation.";
       if (action === "reevaluate" && message.includes("still active")) {
-        setNotice("This evaluation is still active. Re-evaluation becomes available after 15 minutes without completion.");
+        setNotice(message);
+      } else if (action === "reevaluate" && message.includes("waiting for a judge worker")) {
+        setNotice(message);
       } else {
         setError(message);
       }

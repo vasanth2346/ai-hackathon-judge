@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     host_login_2_email: str = ""
     host_login_2_password: str = ""
     judge_stale_after_seconds: int = 900
+    judge_queue_retry_after_seconds: int = 300
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

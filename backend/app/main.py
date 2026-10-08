@@ -1,7 +1,9 @@
 import base64
+import asyncio
 import hashlib
 import hmac
 import json
+import logging
 import re
 import secrets
 import time
@@ -23,12 +25,13 @@ from sqlalchemy.orm import Session, selectinload
 from sqlalchemy.exc import IntegrityError
 
 from app.config import get_settings
-from app.database import Base, engine, get_db
+from app.database import Base, SessionLocal, engine, get_db
 from app.models import GoogleAccount, JudgeRun, ParticipantRegistration, RegistrationPdfUpload, Submission
 from app.pdf_submission import SubmissionPdfError, extract_form_details, extract_registration_rows
 from app.tasks import evaluate_submission
 
 settings = get_settings()
+logger = logging.getLogger(__name__)
 Base.metadata.create_all(bind=engine)
 with engine.begin() as connection:
     # Upgrade the original local MVP schema without discarding prior submissions.
@@ -47,6 +50,9 @@ with engine.begin() as connection:
     connection.execute(text("ALTER TABLE participant_registrations ADD COLUMN IF NOT EXISTS host_account_id VARCHAR(36)"))
     connection.execute(text("ALTER TABLE submissions ADD COLUMN IF NOT EXISTS host_account_id VARCHAR(36)"))
     connection.execute(text("ALTER TABLE submissions ADD COLUMN IF NOT EXISTS domain VARCHAR(80)"))
+    connection.execute(text("ALTER TABLE judge_runs ADD COLUMN IF NOT EXISTS queued_at TIMESTAMPTZ"))
+    connection.execute(text("ALTER TABLE judge_runs ADD COLUMN IF NOT EXISTS retry_count INTEGER NOT NULL DEFAULT 0"))
+    connection.execute(text("UPDATE judge_runs SET queued_at = created_at WHERE queued_at IS NULL"))
     connection.execute(text("CREATE INDEX IF NOT EXISTS ix_participant_registrations_host_account_id ON participant_registrations (host_account_id)"))
     connection.execute(text("CREATE INDEX IF NOT EXISTS ix_submissions_host_account_id ON submissions (host_account_id)"))
     # Keep existing local data visible to the first host account after enabling
@@ -56,6 +62,50 @@ with engine.begin() as connection:
 app = FastAPI(title="Hackathon Judge API", version="0.1.0", description="Evidence-first automated hackathon evaluation")
 origins = list(dict.fromkeys([settings.frontend_origin, "http://localhost:3000", "http://127.0.0.1:3000"]))
 app.add_middleware(CORSMiddleware, allow_origins=origins, allow_methods=["GET", "POST"], allow_headers=["*"], allow_credentials=True)
+
+
+async def _judge_queue_watchdog():
+    """Re-dispatch queued evaluations that have not been claimed by a worker."""
+    while True:
+        await asyncio.sleep(30)
+        db = SessionLocal()
+        try:
+            now = datetime.now(timezone.utc)
+            cutoff = now.timestamp() - settings.judge_queue_retry_after_seconds
+            stale_runs = db.query(JudgeRun).filter(
+                JudgeRun.status == "queued",
+                JudgeRun.phase == "Waiting for judge worker",
+                JudgeRun.queued_at.is_not(None),
+                JudgeRun.queued_at <= datetime.fromtimestamp(cutoff, timezone.utc),
+            ).with_for_update(skip_locked=True).limit(20).all()
+            to_dispatch = []
+            for run in stale_runs:
+                run.retry_count += 1
+                run.queued_at = now
+                run.phase = "Waiting for judge worker"
+                run.error_message = f"The judge worker has not started yet. Automatic retry {run.retry_count} was requested."
+                to_dispatch.append(run.id)
+            db.commit()
+            for run_id in to_dispatch:
+                try:
+                    evaluate_submission.delay(run_id)
+                except Exception as exc:
+                    run = db.get(JudgeRun, run_id)
+                    if run and run.status == "queued":
+                        run.phase = "Waiting for judge worker"
+                        run.queued_at = datetime.now(timezone.utc)
+                        run.error_message = f"Automatic retry could not reach the job queue and will be retried: {str(exc)[:500]}"
+                        db.commit()
+        except Exception:
+            logger.exception("Judge queue watchdog failed")
+            db.rollback()
+        finally:
+            db.close()
+
+
+@app.on_event("startup")
+async def start_judge_queue_watchdog():
+    asyncio.create_task(_judge_queue_watchdog())
 
 HOST_COOKIE_NAME = "proof_host_session"
 PARTICIPANT_COOKIE_NAME = "proof_participant_session"
@@ -749,14 +799,17 @@ def start_judging(submission_id: str, _host: dict = Depends(require_host), db: S
     active = db.query(JudgeRun).filter(JudgeRun.submission_id == submission_id, JudgeRun.status.in_(["queued", "running"])).order_by(JudgeRun.created_at.desc()).first()
     if active:
         now = datetime.now(timezone.utc)
-        reference_time = active.started_at or active.created_at
+        reference_time = (active.queued_at if active.status == "queued" else active.started_at) or active.created_at
         if reference_time:
             if reference_time.tzinfo is None:
                 reference_time = reference_time.replace(tzinfo=timezone.utc)
             age_seconds = (now - reference_time).total_seconds()
         else:
             age_seconds = 0
-        if age_seconds < settings.judge_stale_after_seconds:
+        retry_window = settings.judge_queue_retry_after_seconds if active.status == "queued" else settings.judge_stale_after_seconds
+        if age_seconds < retry_window:
+            if active.status == "queued":
+                raise HTTPException(409, "This project is waiting for a judge worker. The system automatically retries after five minutes.")
             raise HTTPException(409, "This evaluation is still active. Re-evaluation becomes available after 15 minutes without completion.")
         active.status = "failed"
         active.phase = "Timed out; re-evaluation requested"

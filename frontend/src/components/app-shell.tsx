@@ -17,7 +17,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const [authorized, setAuthorized] = useState(false);
   const [checking, setChecking] = useState(true);
-  const isPublic = pathname === "/" || pathname === "/host-login" || pathname === "/participant-login" || pathname === "/participant";
+  const isParticipantRoute = pathname === "/participant" || pathname.startsWith("/participant/");
+  const isPublic = pathname === "/" || pathname === "/host-login" || pathname === "/participant-login" || isParticipantRoute;
   useEffect(() => {
     if (isPublic) { setChecking(false); return; }
     api<{role:string}>("/api/auth/me").then(session => {
