@@ -18,7 +18,7 @@ from fastapi.responses import FileResponse, RedirectResponse
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token
 import httpx
-from sqlalchemy import text
+from sqlalchemy import func, text
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy.exc import IntegrityError
 
@@ -119,8 +119,25 @@ def password_matches(password: str, stored: str | None) -> bool:
         return False
 
 
-def issue_account_session(response: Response, account: GoogleAccount):
-    set_session(response, {"role": account.role, "email": account.email, "sub": account.google_subject or "", "account_id": account.id, "application_number": account.application_number, "phone_verified": False, "exp": int(time.time()) + SESSION_SECONDS})
+def participant_registration_for_email(email: str, db: Session) -> ParticipantRegistration | None:
+    normalized = email.strip().lower()
+    if not normalized:
+        return None
+    registrations = db.query(ParticipantRegistration).filter(
+        func.lower(ParticipantRegistration.email) == normalized
+    ).all()
+    if len(registrations) > 1:
+        raise HTTPException(409, "This email appears in more than one host roster. Ask a host to resolve the duplicate registration.")
+    return registrations[0] if registrations else None
+
+
+def issue_account_session(response: Response, account: GoogleAccount, db: Session):
+    registration = None
+    if account.role == "participant" and account.email_verified:
+        registration = participant_registration_for_email(account.email, db)
+        account.application_number = registration.application_number if registration else None
+        db.commit()
+    set_session(response, {"role": account.role, "email": account.email, "sub": account.google_subject or "", "account_id": account.id, "application_number": account.application_number, "exp": int(time.time()) + SESSION_SECONDS})
 
 
 def normalized_email(email: str) -> str:
@@ -213,7 +230,7 @@ def email_signup(payload: dict, response: Response, db: Session = Depends(get_db
     except IntegrityError as exc:
         db.rollback()
         raise HTTPException(409, "An account already exists for this email and role") from exc
-    issue_account_session(response, account)
+    issue_account_session(response, account, db)
     return {"role": role, "email": email}
 
 
@@ -226,7 +243,7 @@ def email_signin(payload: dict, response: Response, db: Session = Depends(get_db
     account = db.query(GoogleAccount).filter(GoogleAccount.email == email, GoogleAccount.role == role).first()
     if not account or not password_matches(str(payload.get("password", "")), account.password_hash):
         raise HTTPException(401, "Email or password is incorrect")
-    issue_account_session(response, account)
+    issue_account_session(response, account, db)
     return {"role": role, "email": email}
 
 
@@ -238,29 +255,50 @@ async def upload_registration_pdf(
 ):
     contents = await pdf.read(10_000_001)
     if len(contents) > 10_000_000:
-        raise HTTPException(413, "PDF must be 10 MB or smaller")
-    if not contents.startswith(b"%PDF-"):
-        raise HTTPException(415, "Upload a Google Form response PDF")
+        raise HTTPException(413, "Registration file must be 10 MB or smaller")
+    filename = (pdf.filename or "registrations").replace("\\", "/").split("/")[-1][:255]
+    extension = Path(filename).suffix.lower()
+    if extension not in {".pdf", ".csv", ".xlsx", ".xlsm"}:
+        raise HTTPException(415, "Upload a searchable PDF, CSV, or Excel .xlsx file")
+    if extension == ".pdf" and not contents.startswith(b"%PDF-"):
+        raise HTTPException(415, "The selected file is not a valid PDF")
     try:
-        rows, skipped_count = extract_registration_rows(contents)
+        rows, skipped_count = extract_registration_rows(contents, filename)
     except SubmissionPdfError as exc:
         raise HTTPException(422, str(exc)) from exc
-    created = 0
-    updated = 0
-    results = []
     host_account_id = _host.get("account_id")
     if not host_account_id:
         raise HTTPException(401, "Sign in again to upload registrations")
+
+    # One verified email must resolve to one host roster so participant submissions
+    # can be routed to the correct host without ambiguity.
+    for row in rows:
+        if not row["email"]:
+            continue
+        existing_rows = db.query(ParticipantRegistration).filter(
+            func.lower(ParticipantRegistration.email) == row["email"]
+        ).all()
+        if any(existing.host_account_id and existing.host_account_id != host_account_id for existing in existing_rows):
+            raise HTTPException(409, "A participant email is already registered in another host roster. Each email must identify one host roster.")
+
+    created = 0
+    updated = 0
+    results = []
     for row in rows:
         email = row["email"] or None
-        candidates = db.query(ParticipantRegistration).filter(ParticipantRegistration.host_account_id == host_account_id, ParticipantRegistration.phone == row["phone"]).all()
-        registration = next((candidate for candidate in candidates if candidate.participant_name.strip().casefold() == row["participant_name"].strip().casefold()), None)
-        if not registration and email:
-            candidates = db.query(ParticipantRegistration).filter(ParticipantRegistration.host_account_id == host_account_id, ParticipantRegistration.email == email).all()
+        registration = None
+        if email:
+            registration = db.query(ParticipantRegistration).filter(
+                ParticipantRegistration.host_account_id == host_account_id,
+                func.lower(ParticipantRegistration.email) == email,
+            ).first()
+        if not registration and row["phone"]:
+            candidates = db.query(ParticipantRegistration).filter(ParticipantRegistration.host_account_id == host_account_id, ParticipantRegistration.phone == row["phone"]).all()
             registration = next((candidate for candidate in candidates if candidate.participant_name.strip().casefold() == row["participant_name"].strip().casefold()), None)
         if registration:
             registration.participant_name = row["participant_name"]
-            registration.phone = row["phone"]
+            if row["phone"]:
+                registration.phone = row["phone"]
             if email:
                 registration.email = email
             updated += 1
@@ -272,12 +310,12 @@ async def upload_registration_pdf(
             db.add(registration)
             created += 1
         results.append(registration)
-    filename = (pdf.filename or "registrations.pdf").replace("\\", "/").split("/")[-1][:255] or "registrations.pdf"
+    filename = filename or "registrations"
     upload_record = RegistrationPdfUpload(host_account_id=host_account_id, filename=filename, pdf_data=contents, participant_count=len(results), skipped_count=skipped_count)
     db.add(upload_record)
     db.commit()
     email_missing_count = sum(1 for row in results if not row.email)
-    return {"uploaded": True, "participant_count": len(results), "created_count": created, "updated_count": updated, "skipped_count": skipped_count, "email_missing_count": email_missing_count, "status_lines": ["Registration PDF uploaded successfully.", f"{len(results)} participants found; {email_missing_count} missing email; {skipped_count} unreadable rows."]}
+    return {"uploaded": True, "participant_count": len(results), "created_count": created, "updated_count": updated, "skipped_count": skipped_count, "email_missing_count": email_missing_count, "status_lines": ["Registration file uploaded successfully.", f"{len(results)} participants found; {email_missing_count} missing email; {skipped_count} unreadable rows."]}
 
 
 @app.get("/api/host/registrations")
@@ -381,12 +419,15 @@ async def google_auth_callback(
                 if not account or account.role != role:
                     return auth_redirect(role, "account_role_mismatch")
         db.commit()
+        if role == "participant":
+            registration = participant_registration_for_email(account.email, db) if account.email_verified else None
+            account.application_number = registration.application_number if registration else None
+            db.commit()
         destination = "/host-dashboard" if role == "host" else "/participant"
         response = RedirectResponse(settings.frontend_origin.rstrip("/") + destination, status_code=303)
         set_session(response, {
             "role": account.role, "email": account.email, "sub": account.google_subject,
             "account_id": account.id, "application_number": account.application_number,
-            "phone_verified": False,
             "exp": int(time.time()) + SESSION_SECONDS,
         })
         response.delete_cookie("proof_oauth_state", path="/", httponly=True, secure=settings.auth_cookie_secure, samesite=settings.auth_cookie_samesite)
@@ -413,13 +454,28 @@ def logout(response: Response):
 
 @app.get("/api/participant/me")
 def participant_details(session: dict = Depends(require_participant), db: Session = Depends(get_db)):
-    application_number = session.get("application_number")
-    if not application_number or not session.get("phone_verified"):
-        return {"linked": False, "application_number": None, "participant_name": "", "phone": "", "email": session.get("email", ""), "college_name": "", "project_name": "", "problem_statement": "", "solution_description": "", "deployed_url": "", "github_url": None, "has_submission": False, "evaluation_status": "not_started", "total_score": None, "confidence": None, "report": None}
-    registration = db.query(ParticipantRegistration).filter(ParticipantRegistration.application_number == application_number).first() if application_number else None
-    submission = db.query(Submission).options(selectinload(Submission.runs)).filter(Submission.application_number == application_number).first() if application_number else None
-    if not registration and not submission:
-        raise HTTPException(404, "Participant registration not found")
+    account = db.get(GoogleAccount, session.get("account_id"))
+    email = account.email.strip().lower() if account else str(session.get("email", "")).strip().lower()
+    registration = participant_registration_for_email(email, db) if account and account.email_verified else None
+    if not registration:
+        registration_message = (
+            "Sign in with Google to verify the email used in the host’s roster."
+            if not account or not account.email_verified
+            else "No host registration matches this Google email. Ask the host to add this email to their roster."
+        )
+        return {
+            "linked": False, "application_number": None, "participant_name": "", "phone": "",
+            "email": email, "college_name": "", "project_name": "", "problem_statement": "",
+            "solution_description": "", "deployed_url": "", "github_url": None,
+            "has_submission": False, "evaluation_status": "not_started", "total_score": None,
+            "confidence": None, "report": None,
+            "registration_message": registration_message,
+        }
+    application_number = registration.application_number
+    if account.application_number != application_number:
+        account.application_number = application_number
+        db.commit()
+    submission = db.query(Submission).options(selectinload(Submission.runs)).filter(Submission.application_number == application_number).first()
     latest = sorted(submission.runs, key=lambda r: r.created_at or datetime.min.replace(tzinfo=timezone.utc), reverse=True)[0] if submission and submission.runs else None
     report = latest.report if latest and latest.status == "completed" else None
     return {
@@ -439,36 +495,8 @@ def participant_details(session: dict = Depends(require_participant), db: Sessio
         "total_score": latest.total_score if latest and latest.status == "completed" else None,
         "confidence": latest.confidence if latest and latest.status == "completed" else None,
         "report": report,
+        "registration_message": "",
     }
-
-
-@app.post("/api/participant/link-registration")
-def link_participant_registration(payload: dict, response: Response, session: dict = Depends(require_participant), db: Session = Depends(get_db)):
-    phone = re.sub(r"\D", "", str(payload.get("phone_number", "")))
-    if len(phone) < 7 or len(phone) > 20:
-        raise HTTPException(422, "Enter the phone number listed in the host’s registration PDF")
-    account = db.get(GoogleAccount, session.get("account_id"))
-    if not account or account.role != "participant":
-        raise HTTPException(401, "Participant login required")
-    matches = db.query(ParticipantRegistration).filter(ParticipantRegistration.phone == phone).all()
-    email_matches = [row for row in matches if row.email and row.email.strip().lower() == account.email.strip().lower()]
-    if email_matches:
-        matches = email_matches
-    elif any(row.email for row in matches):
-        matches = []
-    if not matches:
-        raise HTTPException(404, "That phone number was not found for your account in a host’s uploaded registration PDF. Check the number or contact the host.")
-    if len(matches) > 1:
-        raise HTTPException(409, "This phone number matches more than one registration. Contact the host to confirm your details.")
-    registration = matches[0]
-    application_number = registration.application_number
-    linked_elsewhere = db.query(GoogleAccount).filter(GoogleAccount.role == "participant", GoogleAccount.application_number == application_number, GoogleAccount.id != account.id).first()
-    if linked_elsewhere:
-        raise HTTPException(409, "This registered ID is already linked to another participant account")
-    account.application_number = application_number
-    db.commit()
-    set_session(response, {"role": account.role, "email": account.email, "sub": account.google_subject or "", "account_id": account.id, "application_number": application_number, "phone_verified": True, "exp": int(time.time()) + SESSION_SECONDS})
-    return {"ok": True}
 
 
 @app.post("/api/participant/submission", status_code=201)
@@ -481,12 +509,14 @@ def participant_submission(
     session: dict = Depends(require_participant),
     db: Session = Depends(get_db),
 ):
-    application_number = session.get("application_number")
-    if not session.get("phone_verified"):
-        raise HTTPException(403, "Verify the phone number from the host’s registration PDF first")
-    registration = db.query(ParticipantRegistration).filter(ParticipantRegistration.application_number == application_number).first() if application_number else None
+    account = db.get(GoogleAccount, session.get("account_id"))
+    if not account or account.role != "participant" or not account.email_verified:
+        raise HTTPException(403, "Use Google sign-in to verify the participant email")
+    registration = participant_registration_for_email(account.email, db)
     if not registration:
-        raise HTTPException(403, "Participant ID is not registered by the host")
+        raise HTTPException(403, "No host registration matches this email")
+    application_number = registration.application_number
+    account.application_number = application_number
     if db.query(Submission).filter(Submission.application_number == application_number).first():
         raise HTTPException(409, "A project has already been submitted for this registration ID")
     validate_external_url(deployed_url)
@@ -495,7 +525,18 @@ def participant_submission(
     db.add(submission)
     db.commit()
     db.refresh(submission)
-    return submission_view(submission)
+    run = JudgeRun(submission_id=submission.id, status="queued", phase="Waiting for judge worker", progress=0, observations=[], evidence=[], review_flags=[])
+    db.add(run)
+    db.commit()
+    db.refresh(run)
+    try:
+        evaluate_submission.delay(run.id)
+    except Exception:
+        run.status = "failed"
+        run.phase = "Queue unavailable"
+        run.error_message = "The project was delivered to the host, but automatic evaluation could not start. The host can retry when the judge worker is available."
+        db.commit()
+    return submission_view(submission, run)
 
 
 @app.post("/api/submissions", status_code=201)

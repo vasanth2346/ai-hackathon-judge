@@ -9,7 +9,6 @@ type Props = { role: Role };
 const errors: Record<string, string> = {
   google_not_configured: "Google sign-in is not set up yet. Add the OAuth client ID and secret to .env.",
   account_not_found: "No account found for this Google account. Choose sign up first.",
-  application_id_not_found: "No participant registration matches that ID. Ask the host to upload the registration PDF.",
   account_role_mismatch: "This Google account is registered for the other account type.",
   participant_id_mismatch: "This Google account is already linked to a different participant ID.",
   google_email_unverified: "Verify your email with Google, then try again.",
@@ -64,7 +63,7 @@ export function GoogleAuthForm({ role }: Props) {
   return <main className="auth-page"><section className="auth-card"><Link className="brand auth-brand" href="/"><span className="brand-icon">P</span><span>proof<span className="brand-dot">.</span><small>HACKATHON JUDGE</small></span></Link><h1>{role === "host" ? "Host account" : "Participant account"}</h1><p>{role === "host" ? "Manage projects and evaluations." : "Access your registration and submit your project."}</p>
     <div className="auth-tabs" role="tablist"><button type="button" role="tab" aria-selected={intent === "signin"} className={intent === "signin" ? "selected" : ""} onClick={() => { setIntent("signin"); setError(""); }}>Sign in</button><button type="button" role="tab" aria-selected={intent === "signup"} className={intent === "signup" ? "selected" : ""} onClick={() => { setIntent("signup"); setError(""); }}>Sign up</button></div>
     <form onSubmit={submitEmail}>
-      <div className="field"><label htmlFor="account-email">Email</label><input id="account-email" type="email" autoComplete="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="you@example.com" required /></div>
+      <div className="field"><label htmlFor="account-email">Email</label><input id="account-email" type="email" autoComplete="email" value={email} onChange={e=>setEmail(e.target.value)} required /></div>
       <div className="field"><label htmlFor="account-password">Password</label><input id="account-password" type="password" autoComplete={intent === "signup" ? "new-password" : "current-password"} minLength={intent === "signup" ? 8 : undefined} value={password} onChange={e=>setPassword(e.target.value)} placeholder={intent === "signup" ? "At least 8 characters" : "Your password"} required /></div>
       {error && <div className="error-banner">{error}</div>}
       <button className="primary-btn auth-submit" type="submit" disabled={busy}>{busy ? "Please wait…" : intent === "signin" ? "Sign in with email" : "Create account with email"}</button>

@@ -1,6 +1,9 @@
+import csv
 import io
 import re
+from pathlib import Path
 
+from openpyxl import load_workbook
 from pypdf import PdfReader
 
 
@@ -8,10 +11,93 @@ class SubmissionPdfError(ValueError):
     pass
 
 
-def extract_registration_rows(pdf_bytes: bytes) -> tuple[list[dict[str, str]], int]:
-    """Read bulk participant rows from table exports or one response per page."""
+def _registration_rows_from_grid(grid: list[list], source_label: str) -> tuple[list[dict[str, str]], int]:
+    """Extract registration records from CSV or spreadsheet rows."""
+    email_pattern = re.compile(r"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}", re.I)
+    name_header = re.compile(r"^(?:(?:participant|student|applicant|registrant|candidate|full)\s+)?name(?:\s+of\s+(?:participant|student))?$", re.I)
+    phone_header = re.compile(r"^(?:phone(?:\s+(?:number|no\.?))?|mobile(?:\s+(?:number|no\.?))?|cell(?:\s+phone)?|contact\s+(?:number|no\.?|phone)|telephone)$", re.I)
+    email_header = re.compile(r"^(?:e-?mail(?:\s+(?:address|id))?|google\s+account)$", re.I)
+
+    def cell_text(value) -> str:
+        if value is None:
+            return ""
+        if isinstance(value, float) and value.is_integer():
+            return str(int(value))
+        return str(value).strip()
+
+    header_at = None
+    columns: dict[str, int] = {}
+    for row_index, row in enumerate(grid[:50]):
+        normalized = [re.sub(r"\s+", " ", cell_text(value)).strip().strip("*:").lower() for value in row]
+        found = {}
+        for index, value in enumerate(normalized):
+            if "name" not in found and name_header.fullmatch(value):
+                found["name"] = index
+            elif "email" not in found and email_header.fullmatch(value):
+                found["email"] = index
+            elif "phone" not in found and phone_header.fullmatch(value):
+                found["phone"] = index
+        if "name" in found and "email" in found:
+            header_at, columns = row_index, found
+            break
+    if header_at is None:
+        raise SubmissionPdfError(f"Could not find Name and Email columns in the {source_label}.")
+
+    output: list[dict[str, str]] = []
+    skipped = 0
+    seen: set[str] = set()
+    for row in grid[header_at + 1:]:
+        values = list(row)
+        name = cell_text(values[columns["name"]] if columns["name"] < len(values) else "")
+        raw_email = cell_text(values[columns["email"]] if columns["email"] < len(values) else "")
+        email_match = email_pattern.search(raw_email)
+        email = email_match.group(0).lower() if email_match else ""
+        phone_value = cell_text(values[columns["phone"]] if "phone" in columns and columns["phone"] < len(values) else "")
+        phone_match = re.search(r"\+?\d[\d\s().-]{5,}\d", phone_value)
+        phone = re.sub(r"\D", "", phone_match.group(0)) if phone_match else ""
+        if not name and not raw_email and not phone_value:
+            continue
+        if len(name) < 2 or not email:
+            skipped += 1
+            continue
+        if email in seen:
+            skipped += 1
+            continue
+        seen.add(email)
+        output.append({"participant_name": name[:200], "phone": phone[:60], "email": email})
+    if not output:
+        raise SubmissionPdfError(f"No participant rows with a name and valid email were found in the {source_label}.")
+    return output, skipped
+
+
+def extract_registration_rows(file_bytes: bytes, filename: str = "") -> tuple[list[dict[str, str]], int]:
+    """Read bulk participant rows from a searchable PDF, CSV, or XLSX file."""
+    extension = Path(filename).suffix.lower()
+    if extension == ".csv":
+        try:
+            text = file_bytes.decode("utf-8-sig")
+        except UnicodeDecodeError:
+            text = file_bytes.decode("latin-1")
+        sample = text[:8192]
+        try:
+            dialect = csv.Sniffer().sniff(sample, delimiters=",;\t|")
+        except csv.Error:
+            dialect = csv.excel
+        return _registration_rows_from_grid(list(csv.reader(io.StringIO(text), dialect)), "CSV file")
+    if extension in {".xlsx", ".xlsm"}:
+        try:
+            workbook = load_workbook(io.BytesIO(file_bytes), read_only=True, data_only=True)
+            worksheet = workbook.active
+            grid = [list(row) for row in worksheet.iter_rows(values_only=True)]
+            workbook.close()
+        except Exception as exc:
+            raise SubmissionPdfError("The uploaded spreadsheet could not be read.") from exc
+        return _registration_rows_from_grid(grid, "spreadsheet")
+    if extension and extension != ".pdf":
+        raise SubmissionPdfError("Upload a PDF, CSV, or Excel .xlsx file.")
+
     try:
-        reader = PdfReader(io.BytesIO(pdf_bytes), strict=False)
+        reader = PdfReader(io.BytesIO(file_bytes), strict=False)
         pages = [page.extract_text(extraction_mode="layout") or "" for page in reader.pages]
     except Exception as exc:
         raise SubmissionPdfError("The uploaded file could not be read as a PDF.") from exc
@@ -30,18 +116,18 @@ def extract_registration_rows(pdf_bytes: bytes) -> tuple[list[dict[str, str]], i
             names = list(name_header.finditer(header))
             phones = list(phone_header.finditer(header))
             emails = list(email_header.finditer(header))
-            if names and phones:
+            if names and (phones or emails):
                 # When a sheet includes both Email Address (Google account)
                 # and Email (form answer), use the exact Email header.
                 exact_emails = [match for match in emails if not re.match(r"\s+address", header[match.end():], re.I)]
                 preferred_name = re.search(r"\b(?:participant(?:'s)?|student|applicant|registrant|candidate|full)\s+name\b", header, re.I)
                 name_column = preferred_name or next((m for m in names if not re.search(r"\b(?:project|college|institution|university)\s+$", header[max(0, m.start()-24):m.start()], re.I)), names[0])
-                header_info = (header_index, header, name_column, phones[-1], (exact_emails or emails)[-1] if emails else None)
+                header_info = (header_index, header, name_column, phones[-1] if phones else None, (exact_emails or emails)[-1] if emails else None)
                 break
         if not header_info:
             continue
         header_index, header, name_match, phone_match, email_match = header_info
-        columns = {"name": name_match.start(), "phone": phone_match.start(), "email": email_match.start() if email_match else -1}
+        columns = {"name": name_match.start(), "phone": phone_match.start() if phone_match else -1, "email": email_match.start() if email_match else -1}
         email_address_match = re.search(r"\bemail\s+address\b", header, re.I)
         email_address_col = email_address_match.start() if email_address_match else -1
 
@@ -72,19 +158,19 @@ def extract_registration_rows(pdf_bytes: bytes) -> tuple[list[dict[str, str]], i
                 boundary = re.search(r"@[a-z0-9.-]+(?=[A-Z])", overflow)
                 if boundary:
                     name = (overflow[boundary.end():] + name).strip()
-            phone_cell = cell(line, columns["phone"])
+            phone_cell = cell(line, columns["phone"]) if columns["phone"] >= 0 else ""
             phone_match_value = re.search(r"\+?\d[\d\s().-]{5,}\d", phone_cell)
             phone = re.sub(r"\D", "", phone_match_value.group(0)) if phone_match_value else ""
             # Most tables have one response per printed line. For exports with
             # no timestamp, a populated phone column is the row discriminator.
-            if not phone and not re.match(r"\s*\d{1,2}/\d{1,2}/\d{4}\b", line):
-                continue
-            if len(name) < 2 or len(phone) < 7:
-                skipped += 1
-                continue
             email_cell = cell(line, columns["email"]) if columns["email"] >= 0 else ""
             email_matches = list(email_pattern.finditer(email_cell))
             email_match = email_matches[-1] if email_matches else None
+            if not phone and not email_match and not re.match(r"\s*\d{1,2}/\d{1,2}/\d{4}\b", line):
+                continue
+            if len(name) < 2 or not (email_match or phone):
+                skipped += 1
+                continue
             if not email_match and email_address_col >= 0:
                 responder_email_cell = cell(line, email_address_col)
                 email_match = email_pattern.search(responder_email_cell)
@@ -105,23 +191,23 @@ def extract_registration_rows(pdf_bytes: bytes) -> tuple[list[dict[str, str]], i
             names = details.get("participant_names") or []
             phone = re.sub(r"\D", "", str(details.get("phone", "")))
             email_match = email_pattern.search(str(details.get("email", "")))
-            if len(names) == 1 and len(phone) >= 7:
-                output.append({"participant_name": names[0][:200], "phone": phone[:60], "email": email_match.group(0).lower() if email_match else ""})
+            if len(names) == 1 and email_match:
+                output.append({"participant_name": names[0][:200], "phone": phone[:60], "email": email_match.group(0).lower()})
             elif names or phone or details.get("email"):
                 skipped += 1
         if output:
-            unique: dict[tuple[str, str], dict[str, str]] = {}
+            unique: dict[str, dict[str, str]] = {}
             for row in output:
-                unique.setdefault((row["participant_name"].strip().casefold(), row["phone"]), row)
+                unique.setdefault(row["email"].strip().casefold(), row)
             return list(unique.values()), skipped
         text = "\n".join(pages)
         if not text.strip():
             raise SubmissionPdfError("No selectable text was found. Upload a text-based Google Forms responses PDF.")
-        raise SubmissionPdfError("Could not read participant rows. Use a searchable PDF with a table header containing Name and Phone (Email is optional), or one labelled participant response per page.")
+        raise SubmissionPdfError("Could not read participant rows. Use a searchable PDF with participant names and email addresses, or one labelled participant response per page.")
     # Deduplicate identical rows that may be repeated at page boundaries.
-    unique: dict[tuple[str, str], dict[str, str]] = {}
+    unique: dict[str, dict[str, str]] = {}
     for row in output:
-        key = (row["participant_name"].strip().casefold(), row["phone"])
+        key = row["email"].strip().casefold() or f"{row['participant_name'].strip().casefold()}|{row['phone']}"
         unique.setdefault(key, row)
     return list(unique.values()), skipped
 

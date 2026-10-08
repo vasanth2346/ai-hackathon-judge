@@ -1,6 +1,6 @@
 # Proof — AI Hackathon Judge
 
-An evidence-first local app for judging individual hackathon projects from their deployed URLs. A verified host signs in and uploads the participant details PDF with the numeric application ID. The app extracts the project name, one participant name, problem statement, and description, then runs a Playwright browser evaluation and creates an evidence-based report.
+An evidence-first local app for judging hackathon projects from their deployed URLs. Hosts import participant rosters; participants sign in with a verified Google email and submit project details. Submissions are routed to the host who imported that participant’s roster, then evaluated with Playwright and reported with evidence.
 
 Team names and manually entered core feature lists are not collected. No slide deck or presentation is required.
 
@@ -14,6 +14,8 @@ docker compose up --build --detach
 
 Open [http://localhost:3000](http://localhost:3000) for the public dashboard. Hosts and participants create accounts or sign in with Google. PostgreSQL stores accounts, submissions, and reports; Redis and a Celery worker run browser evaluations in the background.
 
+Each host has a separate registration roster and project dashboard. Hosts can import a searchable PDF, CSV, or Excel `.xlsx`/`.xlsm` roster with participant names and email addresses (phone is optional). Participants sign in with Google; the verified email matches their host-owned registration, and their submission is saved under that same host. A participant email must not be present in multiple host rosters because it would make the destination ambiguous.
+
 ## Set up Google sign-in
 
 Create a Google OAuth client with application type **Web application**. Add `http://localhost:3000` as an authorized JavaScript origin and `http://localhost:8000/api/auth/google/callback` as an authorized redirect URI. Put its client ID and secret in the ignored local `.env` file:
@@ -25,7 +27,7 @@ GOOGLE_REDIRECT_URI=http://localhost:8000/api/auth/google/callback
 AUTH_SECRET_KEY=your-long-random-secret
 ```
 
-Then run `docker compose up --build --detach`. Google verifies each account’s email on the server. Host sign-up creates a host account; participant sign-up also links the Google account to the participant’s numeric application ID. Participant sign-in uses that same Google account.
+Then run `docker compose up --build --detach`. Google verifies each account’s email on the server. Host sign-up creates a host account. Participant sign-up and sign-in use the same verified Google email to find the participant’s host-owned roster record.
 
 ## Deploy the website on Vercel
 
@@ -57,18 +59,11 @@ After deploying, open `https://YOUR-VERCEL-DOMAIN/api/health`; a healthy respons
 
 Stop the services with `docker compose down`. The database and uploaded PDFs remain in Docker volumes. `docker compose down -v` also deletes that local data.
 
-## Host: add a project
+## Host: import a participant roster
 
-Provide:
+Upload a searchable PDF, CSV, or Excel `.xlsx`/`.xlsm` roster containing participant name and email columns. Phone is optional. Each participant email must identify a single host roster so submissions go to the correct host. Scanned/image-only PDFs are not supported.
 
-- The numeric application ID from the form response
-- A text-based participant details PDF with one participant (up to 10 MB)
-- The deployed project URL
-- Optional public GitHub repository URL, for technical evidence
-
-The PDF needs fields labeled **Project Name**, **Participant Name**, **Problem Statement**, and **Description** (or **Solution Description**). Scanned/image-only PDFs are not supported yet. The host can review the extracted details and uploaded PDF.
-
-Participants use their application ID once during sign-up to link their Google account to the project. After that, they sign in with Google to view only their project details and evaluation. The source PDF and judging controls require a host account.
+Participants sign in with the Google account matching the roster email. Their name and contact details load from the roster; they enter the project name, live URL, GitHub repository, problem statement, and description. A submission appears only in its roster owner’s host dashboard.
 
 The deployed URL is the primary source for behavioral and usability evidence. GitHub manifests are used to verify technical indicators; README assertions are not counted as proof. Browser testing is read-only for potentially consequential actions: the judge does not submit valid forms, delete data, or make purchases.
 
