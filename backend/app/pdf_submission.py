@@ -73,17 +73,17 @@ def _registration_rows_from_grid(grid: list[list], source_label: str) -> tuple[l
 def extract_registration_rows(file_bytes: bytes, filename: str = "") -> tuple[list[dict[str, str]], int]:
     """Read bulk participant rows from a searchable PDF, CSV, or XLSX file."""
     extension = Path(filename).suffix.lower()
-    if extension == ".csv":
+    if extension in {".csv", ".tsv"}:
         try:
             text = file_bytes.decode("utf-8-sig")
         except UnicodeDecodeError:
             text = file_bytes.decode("latin-1")
         sample = text[:8192]
         try:
-            dialect = csv.Sniffer().sniff(sample, delimiters=",;\t|")
+            dialect = csv.excel_tab if extension == ".tsv" else csv.Sniffer().sniff(sample, delimiters=",;\t|")
         except csv.Error:
             dialect = csv.excel
-        return _registration_rows_from_grid(list(csv.reader(io.StringIO(text), dialect)), "CSV file")
+        return _registration_rows_from_grid(list(csv.reader(io.StringIO(text), dialect)), "TSV file" if extension == ".tsv" else "CSV file")
     if extension in {".xlsx", ".xlsm"}:
         try:
             workbook = load_workbook(io.BytesIO(file_bytes), read_only=True, data_only=True)
@@ -94,7 +94,7 @@ def extract_registration_rows(file_bytes: bytes, filename: str = "") -> tuple[li
             raise SubmissionPdfError("The uploaded spreadsheet could not be read.") from exc
         return _registration_rows_from_grid(grid, "spreadsheet")
     if extension and extension != ".pdf":
-        raise SubmissionPdfError("Upload a PDF, CSV, or Excel .xlsx file.")
+        raise SubmissionPdfError("Upload a searchable PDF, CSV, TSV, or Excel .xlsx file.")
 
     try:
         reader = PdfReader(io.BytesIO(file_bytes), strict=False)

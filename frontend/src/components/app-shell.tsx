@@ -27,7 +27,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, [isPublic, pathname, router]);
   if (isPublic) return <>{children}</>;
   if (checking || !authorized) return <div className="auth-loading">Loading…</div>;
-  async function signOut() { try { await api("/api/auth/logout", { method: "POST" }); } finally { router.replace("/"); } }
+  async function signOut() { try { await api("/api/auth/logout?role=host", { method: "POST" }); } finally { router.replace("/"); } }
   return <div className="app-layout">
     <aside className="sidebar">
       <Link className="brand" href="/host-dashboard"><span className="brand-icon"><Radar size={18} strokeWidth={2.2}/></span><span>proof<span className="brand-dot">.</span><small>HACKATHON JUDGE</small></span></Link>

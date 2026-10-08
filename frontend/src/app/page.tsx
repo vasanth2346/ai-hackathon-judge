@@ -13,7 +13,7 @@ export default function PublicDashboard() {
     api<Summary>("/api/public/dashboard").then(setSummary).catch(() => undefined);
     api<{role:string}>("/api/auth/me").then(value => setRole(value.role)).catch(() => setRole(""));
   }, []);
-  async function signOut() { try { await api("/api/auth/logout", { method: "POST" }); } finally { setRole(""); } }
+  async function signOut() { try { await api(`/api/auth/logout?role=${role}`, { method: "POST" }); } finally { setRole(""); } }
   return <main className="public-dashboard">
     <header className="public-topbar"><Link className="brand" href="/"><span className="brand-icon">P</span><span>proof<span className="brand-dot">.</span><small>HACKATHON JUDGE</small></span></Link>
       <nav className="public-auth-nav" aria-label="Account access">{role === "host" ? <><Link className="primary-btn" href="/host-dashboard">Host dashboard <ArrowRight size={14}/></Link><button className="secondary-btn" onClick={signOut}>Sign out</button></> : role === "participant" ? <Link className="primary-btn" href="/participant">My project <ArrowRight size={14}/></Link> : <><div className="public-auth-group"><b>Host</b><Link href="/host-login">Sign in</Link><Link href="/host-login?mode=signup">Sign up</Link></div><span className="public-nav-divider"/><div className="public-auth-group"><b>Participant</b><Link href="/participant-login">Sign in</Link><Link href="/participant-login?mode=signup">Sign up</Link></div></>}</nav>

@@ -12,7 +12,7 @@ from typing import Literal
 from urllib.parse import urlencode, urlparse
 from uuid import uuid4
 
-from fastapi import Cookie, Depends, FastAPI, File, Form, HTTPException, Response, UploadFile
+from fastapi import Cookie, Depends, FastAPI, File, Form, HTTPException, Query, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, RedirectResponse
 from google.auth.transport import requests as google_requests
@@ -54,7 +54,9 @@ app = FastAPI(title="Hackathon Judge API", version="0.1.0", description="Evidenc
 origins = list(dict.fromkeys([settings.frontend_origin, "http://localhost:3000", "http://127.0.0.1:3000"]))
 app.add_middleware(CORSMiddleware, allow_origins=origins, allow_methods=["GET", "POST"], allow_headers=["*"], allow_credentials=True)
 
-COOKIE_NAME = "proof_session"
+HOST_COOKIE_NAME = "proof_host_session"
+PARTICIPANT_COOKIE_NAME = "proof_participant_session"
+LEGACY_COOKIE_NAME = "proof_session"
 SESSION_SECONDS = 8 * 60 * 60
 
 
@@ -83,17 +85,18 @@ def decode_session(token: str | None) -> dict | None:
 
 
 def set_session(response: Response, payload: dict):
-    response.set_cookie(COOKIE_NAME, encode_session(payload), max_age=SESSION_SECONDS, httponly=True, secure=settings.auth_cookie_secure, samesite=settings.auth_cookie_samesite, path="/")
+    cookie_name = HOST_COOKIE_NAME if payload.get("role") == "host" else PARTICIPANT_COOKIE_NAME
+    response.set_cookie(cookie_name, encode_session(payload), max_age=SESSION_SECONDS, httponly=True, secure=settings.auth_cookie_secure, samesite=settings.auth_cookie_samesite, path="/")
 
 
-def require_host(proof_session: str | None = Cookie(None, alias=COOKIE_NAME)):
+def require_host(proof_session: str | None = Cookie(None, alias=HOST_COOKIE_NAME)):
     session = decode_session(proof_session)
     if not session or session.get("role") != "host":
         raise HTTPException(401, "Host login required")
     return session
 
 
-def require_participant(proof_session: str | None = Cookie(None, alias=COOKIE_NAME)):
+def require_participant(proof_session: str | None = Cookie(None, alias=PARTICIPANT_COOKIE_NAME)):
     session = decode_session(proof_session)
     if not session or session.get("role") != "participant":
         raise HTTPException(401, "Participant login required")
@@ -258,8 +261,8 @@ async def upload_registration_pdf(
         raise HTTPException(413, "Registration file must be 10 MB or smaller")
     filename = (pdf.filename or "registrations").replace("\\", "/").split("/")[-1][:255]
     extension = Path(filename).suffix.lower()
-    if extension not in {".pdf", ".csv", ".xlsx", ".xlsm"}:
-        raise HTTPException(415, "Upload a searchable PDF, CSV, or Excel .xlsx file")
+    if extension not in {".pdf", ".csv", ".tsv", ".xlsx", ".xlsm"}:
+        raise HTTPException(415, "Upload a searchable PDF, CSV, TSV, or Excel .xlsx file")
     if extension == ".pdf" and not contents.startswith(b"%PDF-"):
         raise HTTPException(415, "The selected file is not a valid PDF")
     try:
@@ -438,16 +441,32 @@ async def google_auth_callback(
 
 
 @app.get("/api/auth/me")
-def auth_me(proof_session: str | None = Cookie(None, alias=COOKIE_NAME)):
-    session = decode_session(proof_session)
+def auth_me(
+    host_session: str | None = Cookie(None, alias=HOST_COOKIE_NAME),
+    participant_session: str | None = Cookie(None, alias=PARTICIPANT_COOKIE_NAME),
+    legacy_session: str | None = Cookie(None, alias=LEGACY_COOKIE_NAME),
+):
+    session = decode_session(host_session) or decode_session(participant_session) or decode_session(legacy_session)
     if not session:
         raise HTTPException(401, "Sign in required")
     return {"role": session.get("role"), "email": session.get("email")}
 
 
 @app.post("/api/auth/logout")
-def logout(response: Response):
-    response.delete_cookie(COOKIE_NAME, path="/", httponly=True, secure=settings.auth_cookie_secure, samesite=settings.auth_cookie_samesite)
+def logout(
+    response: Response,
+    role: Literal["host", "participant"] | None = Query(None),
+    host_session: str | None = Cookie(None, alias=HOST_COOKIE_NAME),
+    participant_session: str | None = Cookie(None, alias=PARTICIPANT_COOKIE_NAME),
+    legacy_session: str | None = Cookie(None, alias=LEGACY_COOKIE_NAME),
+):
+    # Clear only the role that initiated logout so signing out of one dashboard
+    # does not terminate the other account in another tab.
+    session = decode_session(participant_session) or decode_session(host_session) or decode_session(legacy_session)
+    logout_role = role or (session.get("role") if session else "host")
+    cookie_name = PARTICIPANT_COOKIE_NAME if logout_role == "participant" else HOST_COOKIE_NAME
+    response.delete_cookie(cookie_name, path="/", httponly=True, secure=settings.auth_cookie_secure, samesite=settings.auth_cookie_samesite)
+    response.delete_cookie(LEGACY_COOKIE_NAME, path="/", httponly=True, secure=settings.auth_cookie_secure, samesite=settings.auth_cookie_samesite)
     response.delete_cookie("proof_oauth_state", path="/", httponly=True, secure=settings.auth_cookie_secure, samesite=settings.auth_cookie_samesite)
     return {"ok": True}
 
@@ -487,7 +506,8 @@ def participant_details(session: dict = Depends(require_participant), db: Sessio
         "college_name": registration.college_name if registration else "",
         "project_name": submission.project_name if submission else "",
         "problem_statement": submission.problem_statement if submission else "",
-        "solution_description": submission.solution_description if submission else "",
+        # Project descriptions remain available to the host and judge, but are
+        # not exposed in the participant dashboard response.
         "deployed_url": submission.deployed_url if submission else "",
         "github_url": submission.github_url if submission else None,
         "has_submission": bool(submission),

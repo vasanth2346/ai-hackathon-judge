@@ -21,7 +21,7 @@ export default function ParticipantPage() {
   }, [router]);
 
   async function signOut() {
-    try { await api("/api/auth/logout", { method: "POST" }); }
+    try { await api("/api/auth/logout?role=participant", { method: "POST" }); }
     finally { router.replace("/participant-login"); }
   }
 
@@ -73,7 +73,7 @@ export default function ParticipantPage() {
         </section> : <>
           <h2 className="page-title" style={{marginTop:22}}>{details.project_name}</h2>
           <section className="detail-hero participant-score"><div><h2>Evaluation</h2><p>{details.evaluation_status === "completed" ? "Your project evaluation is ready." : details.evaluation_status === "running" || details.evaluation_status === "queued" ? "Your project is being evaluated." : "Your project has been received."}</p></div><div className="detail-score">{details.total_score != null ? <><strong>{details.total_score.toFixed(1)}</strong><span> / 100</span></> : <span>{details.evaluation_status === "failed" ? "Retry pending" : "Pending"}</span>}</div></section>
-          <div className="participant-details"><section className="panel"><h2 className="panel-title">Problem statement</h2><p className="participant-copy">{details.problem_statement}</p><h2 className="panel-title participant-heading">Description</h2><p className="participant-copy">{details.solution_description}</p><a href={details.deployed_url} target="_blank" rel="noreferrer" className="text-link">Open live project ↗</a>{details.github_url && <p><a href={details.github_url} target="_blank" rel="noreferrer" className="text-link">GitHub repository ↗</a></p>}</section>
+          <div className="participant-details"><section className="panel"><h2 className="panel-title">Problem statement</h2><p className="participant-copy">{details.problem_statement}</p><a href={details.deployed_url} target="_blank" rel="noreferrer" className="text-link">Open live project ↗</a>{details.github_url && <p><a href={details.github_url} target="_blank" rel="noreferrer" className="text-link">GitHub repository ↗</a></p>}</section>
             {report && <section className="panel"><h2 className="panel-title">Evaluation details</h2><div className="criterion-list">{report.criteria?.map((item:any)=><article key={item.key} className="criterion-card"><div className="criterion-top"><span className="criterion-name">{item.name}</span><span className="criterion-weight">{item.weight}%</span><span className="criterion-points">{item.score} / {item.max_points}</span></div><p className="criterion-rationale">{item.why_points_not_awarded || item.rationale}</p>{item.weaknesses?.length > 0 && <p className="participant-copy">{item.weaknesses.join(" ")}</p>}</article>)}</div></section>}
           </div>
         </>}

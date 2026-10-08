@@ -14,8 +14,8 @@ from app.security import decrypt_secret
 settings = get_settings()
 celery_app = Celery("hackathon_judge", broker=settings.redis_url, backend=settings.redis_url)
 celery_app.conf.update(task_track_started=True, task_serializer="json", result_serializer="json", accept_content=["json"], timezone="UTC", task_acks_late=True, worker_prefetch_multiplier=1)
-@celery_app.task(name="app.tasks.evaluate_submission")
-def evaluate_submission(run_id: str):
+@celery_app.task(bind=True, name="app.tasks.evaluate_submission", max_retries=3)
+def evaluate_submission(self, run_id: str):
     db = SessionLocal()
     try:
         run = db.get(JudgeRun, run_id)
@@ -60,11 +60,20 @@ def evaluate_submission(run_id: str):
         db.rollback()
         run = db.get(JudgeRun, run_id)
         if run:
-            run.status = "failed"
-            run.phase = "Evaluation failed"
             run.error_message = f"{type(exc).__name__}: {str(exc)[:1200]}"
-            run.completed_at = datetime.now(timezone.utc)
+            if self.request.retries < self.max_retries:
+                run.status = "queued"
+                run.phase = "Retry scheduled"
+                run.progress = 0
+                run.completed_at = None
+            else:
+                run.status = "failed"
+                run.phase = "Evaluation failed"
+                run.completed_at = datetime.now(timezone.utc)
             db.commit()
+        if self.request.retries < self.max_retries:
+            # Retry transient network or worker errors with increasing delays.
+            raise self.retry(exc=exc, countdown=min(60 * (2 ** self.request.retries), 300))
         raise
     finally:
         db.close()
