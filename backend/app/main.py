@@ -409,9 +409,12 @@ async def google_auth_callback(
     db: Session = Depends(get_db),
 ):
     oauth = decode_session(proof_oauth_state)
-    role = oauth.get("role") if oauth and oauth.get("role") in {"host", "participant"} else "host"
-    if role == "host":
+    # A missing/invalid state cookie must not send a participant through to
+    # the host login page. Host OAuth is disabled, so only a valid host state
+    # is redirected to the host login route.
+    if oauth and oauth.get("role") == "host":
         return auth_redirect("host", "host_google_disabled")
+    role = "participant"
     if not oauth or not state or not secrets.compare_digest(str(oauth.get("state", "")), state):
         return auth_redirect(role, "oauth_state_invalid")
     if provider_error or not code or not settings.google_client_id or not settings.google_client_secret:
