@@ -32,7 +32,7 @@ def observations():
 
 
 def test_rubric_is_exact_and_sums_to_100():
-    assert [weight for _, _, weight in evaluation.RUBRIC] == [30, 20, 10, 10, 20, 10]
+    assert [weight for _, _, weight in evaluation.RUBRIC] == [25, 20, 10, 10, 25, 10]
     assert [key for key, _, _ in evaluation.RUBRIC] == ["functionality", "problem_fit", "technical", "ui_ux", "innovation", "real_world"]
     assert sum(weight for _, _, weight in evaluation.RUBRIC) == 100
 
@@ -50,8 +50,27 @@ def test_total_is_weighted_six_criteria_and_ignores_tool_use(monkeypatch):
     assert first["total_score"] == second["total_score"]
     assert len(first["criteria"]) == 6
     assert round(sum(row["score"] for row in first["criteria"]), 1) == first["total_score"]
-    assert all(row["weight"] in [30, 20, 10] for row in first["criteria"])
+    assert all(row["weight"] in [25, 20, 10] for row in first["criteria"])
     assert all(row["points_not_awarded"] >= 0 and row["why_points_not_awarded"] for row in first["criteria"])
+
+
+def test_problem_fit_uses_problem_statement_and_can_receive_semantic_llm_adjustment(monkeypatch):
+    async def problem_fit_assessment(*args):
+        return {"problem_fit": {
+            "raw_score": 10.0,
+            "rationale": "The observed expiry alerts address the stated inventory loss problem.",
+            "evidence_ids": ["obs-002"],
+            "strengths": ["Observed capability addresses the stated need."],
+            "weaknesses": [],
+            "provider": "test-model",
+        }}
+
+    monkeypatch.setattr(evaluation, "optional_assessment", problem_fit_assessment)
+    baseline = evaluation.problem_fit_agent(submission(), observations())
+    report = evaluation.score_report(submission(), observations(), [], None)
+    fit = next(item for item in report["criteria"] if item["key"] == "problem_fit")
+    assert fit["raw_score"] == round(min(10.0, baseline + 4.0), 1)
+    assert "expiry alerts" in fit["rationale"]
 
 
 def test_criterion_references_only_observed_ids(monkeypatch):

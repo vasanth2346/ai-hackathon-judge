@@ -81,6 +81,12 @@ async def inspect_repository(url: str | None, run_id: str):
     indicators.extend(name for name, present in checks.items() if present)
     source_paths = list(source_files)
     source_combined = "\n".join(source_files.values()).lower()
+    # Give the evaluator a small, bounded sample of verified implementation
+    # relevant to problem fit. The live browser observations remain primary.
+    problem_fit_excerpt = "\n\n".join(
+        f"--- {path} ---\n{content[:1800]}"
+        for path, content in list(source_files.items())[:5]
+    )[:7000]
     code_signals = {
         "frontend_source": any(re.search(r"(?:^|/)src/(?:app|pages)/|(?:^|/)(?:pages|app)/.*\.(?:tsx?|jsx?)$", path, re.I) for path in source_paths),
         "backend_source": any(re.search(r"(?:^|/)(?:main|server|app|routes?|api)\.(?:py|js|ts|go|rs)$", path, re.I) for path in source_paths),
@@ -93,4 +99,4 @@ async def inspect_repository(url: str | None, run_id: str):
     saved.write_text("\n\n".join([*(f"--- {name} ---\n{body}" for name, body in verified_files.items()), *(f"--- SOURCE {name} ---\n{body}" for name, body in source_files.items())]), encoding="utf-8")
     evidence.append({"id": "evi-repo-001", "kind": "repository_snapshot", "title": "Fetched dependency manifests and selected source files", "file": saved.name, "path": str(saved), "source_url": url, "files": list(verified_files) + source_paths, "captured_at": datetime.now(timezone.utc).isoformat()})
     observations.append({"id": "obs-repo-002", "kind": "technology_verification", "title": "Technology and source structure checked", "detail": f"Read {', '.join(verified_files) or 'no supported dependency manifests'} and {len(source_paths)} selected source file(s) from the public default branch. Verified indicators: {', '.join(indicators) or 'none detected'}. Source signals: {', '.join(name for name, present in code_signals.items() if present) or 'none detected'}. README claims were not used to verify these technologies.", "result": "observed", "verified_files": list(verified_files), "source_files": source_paths, "indicators": indicators, "code_signals": code_signals, "language_bytes": languages, "evidence_id": "evi-repo-001", "observed_at": datetime.now(timezone.utc).isoformat()})
-    return observations, evidence, {"indicators": indicators, "languages": languages, "files": list(verified_files), "source_files": source_paths, "code_signals": code_signals, "stars": metadata.get("stargazers_count"), "license": (metadata.get("license") or {}).get("spdx_id")}
+    return observations, evidence, {"indicators": indicators, "languages": languages, "files": list(verified_files), "source_files": source_paths, "code_signals": code_signals, "problem_fit_code_excerpt": problem_fit_excerpt, "stars": metadata.get("stargazers_count"), "license": (metadata.get("license") or {}).get("spdx_id")}

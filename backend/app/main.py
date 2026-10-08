@@ -230,6 +230,9 @@ def email_signup(payload: dict, response: Response, db: Session = Depends(get_db
     email = normalized_email(str(payload.get("email", "")))
     if role == "host":
         raise HTTPException(403, "Host accounts are provisioned by the event administrator. Use Host Login.")
+    registration = participant_registration_for_email(email, db)
+    if not registration:
+        raise HTTPException(403, "This email is not listed in a host’s registration document.")
     password = str(payload.get("password", ""))
     if len(password) < 8:
         raise HTTPException(422, "Password must be at least 8 characters")
@@ -238,8 +241,10 @@ def email_signup(payload: dict, response: Response, db: Session = Depends(get_db
         if account.password_hash:
             raise HTTPException(409, "An account already exists for this email. Sign in instead.")
         account.password_hash = password_digest(password)
+        account.email_verified = True
+        account.application_number = registration.application_number
     else:
-        account = GoogleAccount(email=email, password_hash=password_digest(password), email_verified=False, role=role, application_number=None)
+        account = GoogleAccount(email=email, password_hash=password_digest(password), email_verified=True, role=role, application_number=registration.application_number)
         db.add(account)
     try:
         db.commit()
@@ -279,9 +284,16 @@ def email_signin(payload: dict, response: Response, db: Session = Depends(get_db
             raise HTTPException(401, "Email or password is incorrect")
         issue_account_session(response, account, db)
         return {"role": role, "email": email}
+    registration = participant_registration_for_email(email, db)
+    if not registration:
+        raise HTTPException(403, "This email is not listed in a host’s registration document.")
     account = db.query(GoogleAccount).filter(GoogleAccount.email == email, GoogleAccount.role == role).first()
     if not account or not password_matches(str(payload.get("password", "")), account.password_hash):
         raise HTTPException(401, "Email or password is incorrect")
+    if not account.email_verified or account.application_number != registration.application_number:
+        account.email_verified = True
+        account.application_number = registration.application_number
+        db.commit()
     issue_account_session(response, account, db)
     return {"role": role, "email": email}
 

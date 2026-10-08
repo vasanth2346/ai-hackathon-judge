@@ -1,6 +1,6 @@
 # Proof — AI Hackathon Judge
 
-An evidence-first local app for judging hackathon projects from their deployed URLs. Hosts import participant rosters; participants sign in with a verified Google email and submit project details. Submissions are routed to the host who imported that participant’s roster, then evaluated with Playwright and reported with evidence.
+An evidence-first app for judging hackathon projects from their deployed URLs. Hosts import participant rosters; participants create an account using an email on a host’s roster or sign in with Google, then submit project details. Submissions are routed to the host who imported that participant’s roster and evaluated with browser and repository evidence.
 
 Team names and manually entered core feature lists are not collected. No slide deck or presentation is required.
 
@@ -14,7 +14,7 @@ docker compose up --build --detach
 
 Open [http://localhost:3000](http://localhost:3000) for the public dashboard. Hosts use provisioned email/password accounts. Participants create accounts or sign in with Google. PostgreSQL stores accounts, submissions, and reports; Redis and a Celery worker run browser evaluations in the background.
 
-Each host has a separate registration roster and project dashboard. Hosts can import a searchable PDF, CSV, or Excel `.xlsx`/`.xlsm` roster with participant names and email addresses (phone is optional). Participants sign in with Google; the verified email matches their host-owned registration, and their submission is saved under that same host. A participant email must not be present in multiple host rosters because it would make the destination ambiguous.
+Each host has a separate registration roster and project dashboard. Hosts can import a searchable PDF, CSV, or Excel `.xlsx`/`.xlsm` roster with participant names and email addresses (phone is optional). Participants can create an email/password account or use Google; the email must match a host-owned registration, and their submission is saved under that same host. A participant email must not be present in multiple host rosters because it would make the destination ambiguous.
 
 ## Set up Google sign-in
 
@@ -27,7 +27,7 @@ GOOGLE_REDIRECT_URI=http://localhost:8000/api/auth/google/callback
 AUTH_SECRET_KEY=your-long-random-secret
 ```
 
-Then run `docker compose up --build --detach`. Google verifies participant email on the server. Participant sign-up and sign-in use the same verified Google email to find the participant’s host-owned roster record. Hosts do not use Google sign-in or self-sign-up.
+Then run `docker compose up --build --detach`. Google verifies participant email on the server. Email/password participant account creation also requires an email present in a host’s uploaded roster. Hosts do not use Google sign-in or self-sign-up.
 
 Configure host credentials in the ignored local `.env` file and in the backend deployment environment. Use `HOST_LOGIN_1_EMAIL`, `HOST_LOGIN_1_PASSWORD`, `HOST_LOGIN_2_EMAIL`, and `HOST_LOGIN_2_PASSWORD`. These values are secrets and must not be committed to the repository. Only the configured host emails can sign in.
 
@@ -69,7 +69,7 @@ Stop the services with `docker compose down`. The database and uploaded PDFs rem
 
 Upload a searchable PDF, CSV, or Excel `.xlsx`/`.xlsm` roster containing participant name and email columns. Phone is optional. Each participant email must identify a single host roster so submissions go to the correct host. Scanned/image-only PDFs are not supported.
 
-Participants sign in with the Google account matching the roster email. They verify their profile and select a domain, then enter the project name, live URL, GitHub repository, problem statement, and description. A submission appears only in its roster owner’s host dashboard. Participant dashboards show submission status and project details, not evaluation scores or judge feedback. Hosts can retry an unfinished evaluation after 15 minutes.
+Participants can create an email/password account with the roster email or sign in with the matching Google account. They verify their profile and select a domain, then enter the project name, live URL, GitHub repository, problem statement, and description. A submission appears only in its roster owner’s host dashboard. Participant dashboards show submission status and project details, not evaluation scores or judge feedback. Hosts can retry an unfinished evaluation after 15 minutes. Problem Fit compares the stated need with capabilities observed in the live app; verified repository code can support that assessment but does not prove it is deployed.
 
 The deployed URL is the primary source for behavioral and usability evidence. GitHub manifests are used to verify technical indicators; README assertions are not counted as proof. Browser testing is read-only for potentially consequential actions: the judge does not submit valid forms, delete data, or make purchases.
 
