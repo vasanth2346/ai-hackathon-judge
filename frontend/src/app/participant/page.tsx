@@ -105,7 +105,6 @@ export default function ParticipantPage() {
           </div>
         </>}
 
-        <section className="panel" style={{marginTop:13}}><div className="panel-title">Published rubric</div><div className="rubric-grid" style={{marginTop:12}}>{[["25%","Working Functionality"],["20%","Problem Fit"],["10%","Technical Complexity"],["10%","UI/UX & Usability"],["25%","Innovation & Originality"],["10%","Real-World Potential"]].map(([weight,title])=><div className="rubric-item" key={title}><b>{weight}</b><span>{title}</span></div>)}</div></section>
       </>}
     </section>
   </main>;

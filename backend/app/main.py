@@ -787,6 +787,62 @@ def list_submissions(_host: dict = Depends(require_host), db: Session = Depends(
     return [submission_view(item, sorted(item.runs, key=lambda r: r.created_at or datetime.min.replace(tzinfo=timezone.utc), reverse=True)[0] if item.runs else None) for item in submissions]
 
 
+@app.post("/api/submissions/evaluate-batch", status_code=202)
+def evaluate_submissions_batch(payload: dict, _host: dict = Depends(require_host), db: Session = Depends(get_db)):
+    requested_ids = payload.get("submission_ids")
+    if requested_ids is not None and (not isinstance(requested_ids, list) or len(requested_ids) > 500):
+        raise HTTPException(422, "Choose up to 500 project IDs")
+    if requested_ids is not None and any(not isinstance(item, str) for item in requested_ids):
+        raise HTTPException(422, "Project IDs must be strings")
+
+    query = db.query(Submission).options(selectinload(Submission.runs)).filter(
+        Submission.host_account_id == _host.get("account_id")
+    )
+    if requested_ids is not None:
+        if not requested_ids:
+            return {"queued": 0, "already_active": 0, "not_found": 0}
+        query = query.filter(Submission.id.in_(set(requested_ids)))
+    submissions = query.order_by(Submission.created_at.desc()).all()
+    found_ids = {submission.id for submission in submissions}
+    if requested_ids is not None and found_ids != set(requested_ids):
+        raise HTTPException(404, "One or more selected projects were not found")
+
+    runs_to_enqueue = []
+    already_active = 0
+    now = datetime.now(timezone.utc)
+    for submission in submissions:
+        latest = max(submission.runs, key=lambda run: run.created_at or datetime.min.replace(tzinfo=timezone.utc), default=None)
+        if latest and latest.status in {"queued", "running"}:
+            reference_time = (latest.queued_at if latest.status == "queued" else latest.started_at) or latest.created_at
+            if reference_time and reference_time.tzinfo is None:
+                reference_time = reference_time.replace(tzinfo=timezone.utc)
+            max_wait = settings.judge_queue_retry_after_seconds if latest.status == "queued" else settings.judge_stale_after_seconds
+            if reference_time and (now - reference_time).total_seconds() < max_wait:
+                already_active += 1
+                continue
+            latest.status = "failed"
+            latest.phase = "Timed out; evaluation restarted"
+            latest.error_message = "The evaluation exceeded its retry window and was restarted from the bulk evaluation action."
+            latest.completed_at = now
+        run = JudgeRun(
+            submission_id=submission.id,
+            status="queued",
+            phase="Waiting for judge worker",
+            progress=0,
+            observations=[],
+            evidence=[],
+            review_flags=[],
+        )
+        db.add(run)
+        runs_to_enqueue.append(run)
+
+    db.commit()
+    for run in runs_to_enqueue:
+        db.refresh(run)
+        enqueue_evaluation(run, db)
+    return {"queued": len(runs_to_enqueue), "already_active": already_active, "not_found": 0}
+
+
 @app.get("/api/submissions/{submission_id}")
 def get_submission(submission_id: str, _host: dict = Depends(require_host), db: Session = Depends(get_db)):
     submission = db.query(Submission).options(selectinload(Submission.runs)).filter(Submission.id == submission_id, Submission.host_account_id == _host.get("account_id")).first()
@@ -824,9 +880,7 @@ def start_judging(submission_id: str, _host: dict = Depends(require_host), db: S
             age_seconds = 0
         retry_window = settings.judge_queue_retry_after_seconds if active.status == "queued" else settings.judge_stale_after_seconds
         if age_seconds < retry_window:
-            if active.status == "queued":
-                raise HTTPException(409, "This project is already in the evaluation queue and will start when a judge worker slot is available.")
-            raise HTTPException(409, "This evaluation is still active. Re-evaluation becomes available after 15 minutes without completion.")
+            return run_view(active)
         active.status = "failed"
         active.phase = "Timed out; re-evaluation requested"
         active.error_message = "This run did not finish within the retry window. A new evaluation was requested."
