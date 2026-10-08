@@ -1,7 +1,10 @@
 import type { NextConfig } from "next";
 import path from "node:path";
 
-const apiProxyTarget = process.env.API_PROXY_TARGET?.replace(/\/$/, "");
+const configuredApiProxyTarget = process.env.API_PROXY_TARGET?.replace(/\/$/, "");
+const apiProxyTarget = configuredApiProxyTarget || (
+  process.env.VERCEL === "1" ? "https://ai-hackathon-judge-1.onrender.com" : ""
+);
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,

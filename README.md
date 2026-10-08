@@ -33,7 +33,7 @@ Configure host credentials in the ignored local `.env` file and in the backend d
 
 ## Deploy the website on Vercel
 
-Vercel hosts the Next.js website only. The FastAPI service, Celery worker, PostgreSQL, and Redis must also be running on a backend host. In Vercel, set **Root Directory** to `frontend` and add this environment variable for Production:
+Vercel hosts the Next.js website only. The FastAPI service, Celery worker, PostgreSQL, and Redis must also be running on a backend host. In Vercel, set **Root Directory** to `frontend`. The deployed project uses `API_PROXY_TARGET` when present; otherwise its Vercel build proxies requests to the project’s Render API. If you use a different backend, add this variable for Production:
 
 ```dotenv
 API_PROXY_TARGET=https://YOUR-BACKEND-DOMAIN
