@@ -12,7 +12,7 @@ Requirements: Docker Desktop and Docker Compose.
 docker compose up --build --detach
 ```
 
-Open [http://localhost:3000](http://localhost:3000) for the public dashboard. Hosts use provisioned email/password accounts. Participants create accounts or sign in with Google. PostgreSQL stores accounts, submissions, and reports; Redis and a Celery worker run browser evaluations in the background.
+Open [http://localhost:3000](http://localhost:3000) for the public dashboard. Hosts use provisioned email/password accounts. Participants create accounts or sign in with Google. PostgreSQL stores accounts, submissions, and reports; Redis and a Celery worker run browser evaluations in the background. The Render Docker API service starts both the API and a judge worker by default. `JUDGE_WORKER_CONCURRENCY` defaults to 2; browser workers use significant memory, so raise concurrency or scale service instances only when the Render plan has enough memory.
 
 Each host has a separate registration roster and project dashboard. Hosts can import a searchable PDF, CSV, or Excel `.xlsx`/`.xlsm` roster with participant names and email addresses (phone is optional). Participants can create an email/password account or use Google; the email must match a host-owned registration, and their submission is saved under that same host. A participant email must not be present in multiple host rosters because it would make the destination ambiguous.
 
@@ -41,7 +41,7 @@ API_PROXY_TARGET=https://YOUR-BACKEND-DOMAIN
 
 Do not set `NEXT_PUBLIC_API_URL` when using this proxy. The website routes `/api/...` requests through the backend using the same website domain, which lets Google sign-in session cookies work reliably. Redeploy the Vercel project after changing environment variables.
 
-For a Render Docker web service, set its root directory to `backend/` and configure these values in **Render → your API web service → Environment** (never put secrets in Vercel):
+For a Render Docker web service, set its root directory to `backend/`, leave **Start Command** empty so Render uses the Dockerfile entrypoint, and configure these values in **Render → your API web service → Environment** (never put secrets in Vercel). The entrypoint starts the API and Celery worker together and restarts the worker if it exits. Set `JUDGE_WORKER_CONCURRENCY` according to the service memory. If you run a separate Render Background Worker instead, set `START_JUDGE_WORKER=false` on the API service and use `celery -A app.tasks.celery_app worker --loglevel=INFO --concurrency=2` as the worker Start Command; the API and worker must share the same database and Redis URLs.
 
 ```dotenv
 FRONTEND_ORIGIN=https://YOUR-VERCEL-DOMAIN
@@ -61,7 +61,7 @@ HOST_LOGIN_2_PASSWORD=use-a-private-password
 
 Replace `YOUR-VERCEL-DOMAIN` with the exact production domain, without a trailing slash. In Google Cloud Console, add `https://YOUR-VERCEL-DOMAIN` as an **Authorized JavaScript origin** and `https://YOUR-VERCEL-DOMAIN/api/auth/google/callback` as an **Authorized redirect URI**. The Vercel `/api` rewrite forwards that callback to the Render API. Do not use the Render domain as the OAuth redirect URI when using this proxy. The API and worker must use the same database, Redis, encryption, Gemini, and OAuth environment settings. The frontend and API must both use HTTPS in production.
 
-After deploying, open `https://YOUR-VERCEL-DOMAIN/api/health`; a healthy response confirms Vercel is reaching the API. Open `https://YOUR-VERCEL-DOMAIN/api/auth/google/status` to check OAuth configuration without revealing secret values. The host dashboard also shows whether an AI provider and API key are configured. If you update backend environment values, redeploy the Render API. If you update Vercel environment values, redeploy the Vercel project.
+After deploying, open `https://YOUR-VERCEL-DOMAIN/api/health`; `database: "ok"` and `judge_worker_ready: true` confirm the API, database, and judge worker are connected. If worker readiness is false, check the Render service logs and ensure its Start Command is empty so the Dockerfile starts the worker. Open `https://YOUR-VERCEL-DOMAIN/api/auth/google/status` to check OAuth configuration without revealing secret values. The host dashboard also shows whether an AI provider and API key are configured. If you update backend environment values, redeploy the Render API. If you update Vercel environment values, redeploy the Vercel project.
 
 Stop the services with `docker compose down`. The database and uploaded PDFs remain in Docker volumes. `docker compose down -v` also deletes that local data.
 
@@ -69,7 +69,7 @@ Stop the services with `docker compose down`. The database and uploaded PDFs rem
 
 Upload a searchable PDF, CSV, or Excel `.xlsx`/`.xlsm` roster containing participant name and email columns. Phone is optional. Each participant email must identify a single host roster so submissions go to the correct host. Scanned/image-only PDFs are not supported.
 
-Participants can create an email/password account with the roster email or sign in with the matching Google account. They verify their profile and select a domain, then enter the project name, live URL, GitHub repository, problem statement, and description. A submission appears only in its roster owner’s host dashboard. Participant dashboards show submission status and project details, not evaluation scores or judge feedback. If a run stays queued without a worker starting, the API re-dispatches it every five minutes until a worker claims it; hosts can manually retry an unfinished run after 15 minutes. Problem Fit compares the stated need with capabilities observed in the live app; verified repository code can support that assessment but does not prove it is deployed.
+Participants can create an email/password account with the roster email or sign in with the matching Google account. They verify their profile and select a domain, then enter the project name, live URL, GitHub repository, problem statement, and description. A submission appears only in its roster owner’s host dashboard. Participant dashboards show submission status and project details, not evaluation scores or judge feedback. Every submission is queued immediately; available worker slots start evaluations in parallel. Celery returns interrupted jobs to the queue, and transient evaluation errors are retried. Hosts can manually retry an unfinished run after 15 minutes. Problem Fit compares the stated need with capabilities observed in the live app; verified repository code can support that assessment but does not prove it is deployed.
 
 The deployed URL is the primary source for behavioral and usability evidence. GitHub manifests are used to verify technical indicators; README assertions are not counted as proof. Browser testing is read-only for potentially consequential actions: the judge does not submit valid forms, delete data, or make purchases.
 

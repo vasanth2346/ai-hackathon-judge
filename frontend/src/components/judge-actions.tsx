@@ -16,6 +16,12 @@ export function JudgeActions({ submissionId, onComplete }: Props) {
     return () => window.clearTimeout(timeout);
   }, [notice]);
 
+  useEffect(() => {
+    if (!error) return;
+    const timeout = window.setTimeout(() => setError(""), 5000);
+    return () => window.clearTimeout(timeout);
+  }, [error]);
+
   async function start(action: "evaluate" | "reevaluate") {
     setBusy(action);
     setError("");
@@ -24,9 +30,7 @@ export function JudgeActions({ submissionId, onComplete }: Props) {
       await onComplete();
     } catch (e) {
       const message = e instanceof Error ? e.message : "Could not start evaluation.";
-      if (action === "reevaluate" && message.includes("still active")) {
-        setNotice(message);
-      } else if (action === "reevaluate" && message.includes("waiting for a judge worker")) {
+      if (action === "reevaluate" && (message.includes("still active") || message.includes("waiting for a judge worker"))) {
         setNotice(message);
       } else {
         setError(message);

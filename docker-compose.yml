@@ -32,6 +32,7 @@ services:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-judge}:${POSTGRES_PASSWORD:-change-this-local-password}@db:5432/${POSTGRES_DB:-hackathon_judge}
       REDIS_URL: redis://redis:6379/0
       EVIDENCE_DIR: /app/evidence
+      START_JUDGE_WORKER: "false"
     ports:
       - "${API_PORT:-8000}:8000"
     volumes:
@@ -44,12 +45,13 @@ services:
 
   worker:
     build: ./backend
-    command: celery -A app.tasks.celery_app worker --loglevel=INFO --concurrency=2
+    command: celery -A app.tasks.celery_app worker --loglevel=INFO --concurrency=${JUDGE_WORKER_CONCURRENCY:-2}
     env_file: .env
     environment:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-judge}:${POSTGRES_PASSWORD:-change-this-local-password}@db:5432/${POSTGRES_DB:-hackathon_judge}
       REDIS_URL: redis://redis:6379/0
       EVIDENCE_DIR: /app/evidence
+      JUDGE_WORKER_CONCURRENCY: ${JUDGE_WORKER_CONCURRENCY:-2}
     volumes:
       - judge_evidence:/app/evidence
     depends_on:

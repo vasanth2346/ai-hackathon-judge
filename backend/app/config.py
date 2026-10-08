@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     host_login_2_password: str = ""
     judge_stale_after_seconds: int = 900
     judge_queue_retry_after_seconds: int = 300
+    judge_queue_publish_retry_seconds: int = 30
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

@@ -14,13 +14,13 @@ from app.security import decrypt_secret
 
 settings = get_settings()
 celery_app = Celery("hackathon_judge", broker=settings.redis_url, backend=settings.redis_url)
-celery_app.conf.update(task_track_started=True, task_serializer="json", result_serializer="json", accept_content=["json"], timezone="UTC", task_acks_late=True, worker_prefetch_multiplier=1)
+celery_app.conf.update(task_track_started=True, task_serializer="json", result_serializer="json", accept_content=["json"], timezone="UTC", task_acks_late=True, task_reject_on_worker_lost=True, worker_prefetch_multiplier=1)
 @celery_app.task(bind=True, name="app.tasks.evaluate_submission", max_retries=3)
 def evaluate_submission(self, run_id: str):
     db = SessionLocal()
     try:
-        # Claim a queued run under a row lock so a delayed watchdog delivery and
-        # the original queue message can never evaluate the same project twice.
+        # Claim a queued run under a row lock so duplicate broker deliveries
+        # cannot evaluate the same project twice.
         run = db.execute(
             select(JudgeRun).where(JudgeRun.id == run_id).with_for_update()
         ).scalar_one_or_none()

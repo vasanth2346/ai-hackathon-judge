@@ -8,6 +8,7 @@ const apiProxyTarget = configuredApiProxyTarget || (
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
+  output: "standalone",
   outputFileTracingRoot: path.resolve(process.cwd()),
   async rewrites() {
     if (!apiProxyTarget) return [];

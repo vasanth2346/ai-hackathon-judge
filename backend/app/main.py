@@ -28,7 +28,7 @@ from app.config import get_settings
 from app.database import Base, SessionLocal, engine, get_db
 from app.models import GoogleAccount, JudgeRun, ParticipantRegistration, RegistrationPdfUpload, Submission
 from app.pdf_submission import SubmissionPdfError, extract_form_details, extract_registration_rows
-from app.tasks import evaluate_submission
+from app.tasks import celery_app, evaluate_submission
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
@@ -63,49 +63,6 @@ app = FastAPI(title="Hackathon Judge API", version="0.1.0", description="Evidenc
 origins = list(dict.fromkeys([settings.frontend_origin, "http://localhost:3000", "http://127.0.0.1:3000"]))
 app.add_middleware(CORSMiddleware, allow_origins=origins, allow_methods=["GET", "POST"], allow_headers=["*"], allow_credentials=True)
 
-
-async def _judge_queue_watchdog():
-    """Re-dispatch queued evaluations that have not been claimed by a worker."""
-    while True:
-        await asyncio.sleep(30)
-        db = SessionLocal()
-        try:
-            now = datetime.now(timezone.utc)
-            cutoff = now.timestamp() - settings.judge_queue_retry_after_seconds
-            stale_runs = db.query(JudgeRun).filter(
-                JudgeRun.status == "queued",
-                JudgeRun.phase == "Waiting for judge worker",
-                JudgeRun.queued_at.is_not(None),
-                JudgeRun.queued_at <= datetime.fromtimestamp(cutoff, timezone.utc),
-            ).with_for_update(skip_locked=True).limit(20).all()
-            to_dispatch = []
-            for run in stale_runs:
-                run.retry_count += 1
-                run.queued_at = now
-                run.phase = "Waiting for judge worker"
-                run.error_message = f"The judge worker has not started yet. Automatic retry {run.retry_count} was requested."
-                to_dispatch.append(run.id)
-            db.commit()
-            for run_id in to_dispatch:
-                try:
-                    evaluate_submission.delay(run_id)
-                except Exception as exc:
-                    run = db.get(JudgeRun, run_id)
-                    if run and run.status == "queued":
-                        run.phase = "Waiting for judge worker"
-                        run.queued_at = datetime.now(timezone.utc)
-                        run.error_message = f"Automatic retry could not reach the job queue and will be retried: {str(exc)[:500]}"
-                        db.commit()
-        except Exception:
-            logger.exception("Judge queue watchdog failed")
-            db.rollback()
-        finally:
-            db.close()
-
-
-@app.on_event("startup")
-async def start_judge_queue_watchdog():
-    asyncio.create_task(_judge_queue_watchdog())
 
 HOST_COOKIE_NAME = "proof_host_session"
 PARTICIPANT_COOKIE_NAME = "proof_participant_session"
@@ -226,6 +183,70 @@ def run_view(run: JudgeRun):
     return {"id": run.id, "submission_id": run.submission_id, "status": run.status, "phase": run.phase, "progress": run.progress, "total_score": run.total_score, "confidence": run.confidence, "report": run.report, "observations": run.observations or [], "evidence": run.evidence or [], "review_flags": run.review_flags or [], "error_message": run.error_message, "created_at": run.created_at.isoformat() if run.created_at else None, "completed_at": run.completed_at.isoformat() if run.completed_at else None}
 
 
+def enqueue_evaluation(run: JudgeRun, db: Session):
+    run.phase = "Waiting for judge worker"
+    run.queued_at = datetime.now(timezone.utc)
+    db.commit()
+    try:
+        evaluate_submission.delay(run.id)
+    except Exception as exc:
+        db.refresh(run)
+        if run.status == "queued":
+            run.phase = "Queue unavailable"
+            run.error_message = f"The evaluation queue is temporarily unavailable and will retry automatically: {str(exc)[:500]}"
+            run.queued_at = datetime.now(timezone.utc)
+            db.commit()
+
+
+async def _recover_unpublished_evaluations():
+    """Retry only broker publish failures; ordinary queued jobs stay single-copy."""
+    while True:
+        await asyncio.sleep(settings.judge_queue_publish_retry_seconds)
+        db = SessionLocal()
+        try:
+            cutoff = datetime.now(timezone.utc).timestamp() - settings.judge_queue_publish_retry_seconds
+            stale = db.query(JudgeRun).filter(
+                JudgeRun.status == "queued",
+                JudgeRun.phase == "Queue unavailable",
+                JudgeRun.queued_at <= datetime.fromtimestamp(cutoff, timezone.utc),
+            ).with_for_update(skip_locked=True).limit(20).all()
+            run_ids = [run.id for run in stale]
+            for run in stale:
+                run.phase = "Waiting for judge worker"
+                run.queued_at = datetime.now(timezone.utc)
+            db.commit()
+            for run_id in run_ids:
+                run = db.get(JudgeRun, run_id)
+                if not run or run.status != "queued":
+                    continue
+                try:
+                    evaluate_submission.delay(run_id)
+                except Exception as exc:
+                    db.refresh(run)
+                    if run.status == "queued":
+                        run.phase = "Queue unavailable"
+                        run.error_message = f"The evaluation queue is temporarily unavailable and will retry automatically: {str(exc)[:500]}"
+                        run.queued_at = datetime.now(timezone.utc)
+                        db.commit()
+        except Exception:
+            logger.exception("Could not recover unpublished evaluation jobs")
+            db.rollback()
+        finally:
+            db.close()
+
+
+@app.on_event("startup")
+async def start_queue_recovery():
+    asyncio.create_task(_recover_unpublished_evaluations())
+
+
+def online_judge_workers() -> int:
+    try:
+        return len(celery_app.control.ping(timeout=1.0) or [])
+    except Exception:
+        return 0
+
+
 def submission_view(submission: Submission, latest: JudgeRun | None = None):
     return {"id": submission.id, "application_number": submission.application_number, "project_name": submission.project_name, "participant_names": submission.participant_names, "deployed_url": submission.deployed_url, "domain": submission.domain, "problem_statement": submission.problem_statement, "solution_description": submission.solution_description, "source_pdf_available": bool(submission.source_pdf_file), "github_url": submission.github_url, "documentation_url": submission.documentation_url, "ai_tools_metadata": submission.ai_tools_metadata, "created_at": submission.created_at.isoformat() if submission.created_at else None, "latest_run": run_view(latest) if latest else None}
 
@@ -234,7 +255,8 @@ def submission_view(submission: Submission, latest: JudgeRun | None = None):
 def health(db: Session = Depends(get_db)):
     try:
         db.execute(__import__("sqlalchemy").text("SELECT 1"))
-        return {"status": "ok", "database": "ok"}
+        workers_online = online_judge_workers()
+        return {"status": "ok", "database": "ok", "judge_workers_online": workers_online, "judge_worker_ready": workers_online > 0}
     except Exception as exc:
         raise HTTPException(503, "Database is unavailable") from exc
 
@@ -689,13 +711,7 @@ def participant_submission(
     db.add(run)
     db.commit()
     db.refresh(run)
-    try:
-        evaluate_submission.delay(run.id)
-    except Exception:
-        run.status = "failed"
-        run.phase = "Queue unavailable"
-        run.error_message = "The project was delivered to the host, but automatic evaluation could not start. The host can retry when the judge worker is available."
-        db.commit()
+    enqueue_evaluation(run, db)
     return submission_view(submission, run)
 
 
@@ -809,7 +825,7 @@ def start_judging(submission_id: str, _host: dict = Depends(require_host), db: S
         retry_window = settings.judge_queue_retry_after_seconds if active.status == "queued" else settings.judge_stale_after_seconds
         if age_seconds < retry_window:
             if active.status == "queued":
-                raise HTTPException(409, "This project is waiting for a judge worker. The system automatically retries after five minutes.")
+                raise HTTPException(409, "This project is already in the evaluation queue and will start when a judge worker slot is available.")
             raise HTTPException(409, "This evaluation is still active. Re-evaluation becomes available after 15 minutes without completion.")
         active.status = "failed"
         active.phase = "Timed out; re-evaluation requested"
@@ -820,14 +836,7 @@ def start_judging(submission_id: str, _host: dict = Depends(require_host), db: S
     db.add(run)
     db.commit()
     db.refresh(run)
-    try:
-        evaluate_submission.delay(run.id)
-    except Exception as exc:
-        run.status = "failed"
-        run.phase = "Queue unavailable"
-        run.error_message = "The job queue is unavailable. Start Redis and the Celery worker, then retry."
-        db.commit()
-        raise HTTPException(503, run.error_message) from exc
+    enqueue_evaluation(run, db)
     return run_view(run)
 
 
@@ -836,7 +845,8 @@ def judge_configuration_status(_host: dict = Depends(require_host)):
     provider = settings.llm_provider.lower()
     supported = provider in {"openai", "openai-compatible", "google", "gemini"}
     configured = bool(settings.llm_api_key.strip())
-    return {"provider": provider, "model": settings.llm_model, "key_configured": configured, "ai_assessment_configured": supported and configured}
+    workers_online = online_judge_workers()
+    return {"provider": provider, "model": settings.llm_model, "key_configured": configured, "ai_assessment_configured": supported and configured, "workers_online": workers_online, "worker_ready": workers_online > 0}
 
 
 @app.get("/api/runs/{run_id}")

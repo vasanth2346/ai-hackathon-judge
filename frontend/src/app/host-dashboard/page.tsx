@@ -15,12 +15,13 @@ export default function Dashboard() {
   const [uploadMessage, setUploadMessage] = useState("");
   const [uploadError, setUploadError] = useState("");
   const [uploading, setUploading] = useState(false);
-  const [aiStatus, setAiStatus] = useState<{provider:string;model:string;key_configured:boolean;ai_assessment_configured:boolean}|null>(null);
+  const [aiStatus, setAiStatus] = useState<{provider:string;model:string;key_configured:boolean;ai_assessment_configured:boolean;workers_online:number;worker_ready:boolean}|null>(null);
   async function refresh(){const [s,l]=await Promise.all([api<Submission[]>("/api/submissions"),api<Leader[]>("/api/leaderboard")]);setSubmissions(s);setLeaders(l);}
+  async function refreshJudgeStatus(){api<{provider:string;model:string;key_configured:boolean;ai_assessment_configured:boolean;workers_online:number;worker_ready:boolean}>("/api/judge/status").then(setAiStatus).catch(() => setAiStatus(null));}
   useEffect(() => {
     refresh().catch((e) => setError(e.message));
-    api<{provider:string;model:string;key_configured:boolean;ai_assessment_configured:boolean}>("/api/judge/status").then(setAiStatus).catch(() => setAiStatus(null));
-    const timer = window.setInterval(() => refresh().catch((e) => setError(e.message)), 15000);
+    refreshJudgeStatus();
+    const timer = window.setInterval(() => {refresh().catch((e) => setError(e.message));refreshJudgeStatus();}, 15000);
     return () => window.clearInterval(timer);
   }, []);
   async function importRegistration(event:React.FormEvent<HTMLFormElement>){event.preventDefault();const form=event.currentTarget;setUploadError("");setUploadMessage("");if(!registrationFile){setUploadError("Choose a registration document first.");return;}setUploading(true);const data=new FormData();data.set("pdf",registrationFile);try{const result=await upload<RegistrationImport>("/api/host/registrations",data);setUploadMessage(result.status_lines.join("\n"));setRegistrationFile(null);form.reset();await refresh();}catch(e){setUploadError(e instanceof Error?e.message:"Could not upload registration document.");}finally{setUploading(false);}}
@@ -36,7 +37,7 @@ export default function Dashboard() {
       <Stat label="IN PROGRESS" value={String(active.length).padStart(2,"0")} note="Live judge jobs" icon={<Radar size={16}/>} />
       <Stat label="AVERAGE SCORE" value={avg} note="Out of 100 points" icon={<Gauge size={16}/>} />
     </div>
-    {aiStatus&&<div className={`status-pill ${aiStatus.ai_assessment_configured?"complete":"queued"}`} style={{marginBottom:12,padding:"9px 12px"}}><span className="status-dot"/>{aiStatus.ai_assessment_configured?`AI assessment configured · ${aiStatus.provider} / ${aiStatus.model}. Check each report to confirm it responded.`:"AI assessment not configured · evaluations use the evidence-based fallback"}</div>}
+    {aiStatus&&<><div className={`status-pill ${aiStatus.worker_ready?"complete":"queued"}`} style={{marginBottom:8,padding:"9px 12px"}}><span className="status-dot"/>{aiStatus.worker_ready?`Judge worker ready · ${aiStatus.workers_online} worker${aiStatus.workers_online===1?"":"s"} online`:"No judge worker connected · new evaluations will wait until a worker is running"}</div><div className={`status-pill ${aiStatus.ai_assessment_configured?"complete":"queued"}`} style={{marginBottom:12,padding:"9px 12px"}}><span className="status-dot"/>{aiStatus.ai_assessment_configured?`AI assessment configured · ${aiStatus.provider} / ${aiStatus.model}. Check each report to confirm it responded.`:"AI assessment not configured · evaluations use the evidence-based fallback"}</div></>}
     <div className="dashboard-grid">
       <section className="panel"><div className="panel-heading"><div><div className="panel-title">Recent projects</div><div className="panel-kicker" style={{marginTop:4}}>Latest entries</div></div><Link className="text-link" href="/submissions">All projects <ArrowRight size={13}/></Link></div>
       {submissions.length ? <div className="table-wrap"><table className="data-table"><thead><tr><th>APPLICATION ID</th><th>PROJECT</th><th>SUBMITTED</th><th>STATUS</th><th>SCORE</th><th>ACTIONS</th></tr></thead><tbody>{submissions.slice(0,5).map(item=><tr key={item.id}><td>{item.application_number||"—"}</td><td><Link className="project-cell" href={`/submissions/${item.id}`}><span className="project-avatar">{item.project_name.slice(0,1).toUpperCase()}</span>{item.project_name}</Link></td><td>{new Date(item.created_at).toLocaleDateString(undefined,{month:"short",day:"numeric"})}</td><td><Status status={item.latest_run?.status || "submitted"}/></td><td>{item.latest_run?.total_score != null ? <span className="score-pill">{item.latest_run.total_score.toFixed(1)}</span> : <span style={{color:"#b2bbb6"}}>—</span>}</td><td><JudgeActions submissionId={item.id} onComplete={refresh}/></td></tr>)}</tbody></table></div> : <Empty icon={<ClipboardCheck size={17}/>} title="No projects yet" body="Add the first project." action={<Link href="/submissions/new" className="text-link">Add a project <ArrowRight size={13}/></Link>}/>}</section>
