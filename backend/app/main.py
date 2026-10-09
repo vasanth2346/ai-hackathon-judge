@@ -108,15 +108,23 @@ def set_session(response: Response, payload: dict):
     response.set_cookie(cookie_name, encode_session(payload), max_age=SESSION_SECONDS, httponly=True, secure=settings.auth_cookie_secure, samesite=settings.auth_cookie_samesite, path="/")
 
 
-def require_host(proof_session: str | None = Cookie(None, alias=HOST_COOKIE_NAME)):
-    session = decode_session(proof_session)
+def require_host(
+    proof_session: str | None = Cookie(None, alias=HOST_COOKIE_NAME),
+    legacy_session: str | None = Cookie(None, alias=LEGACY_COOKIE_NAME),
+):
+    # Older releases stored every role in proof_session. Continue accepting a
+    # correctly signed host session during upgrades so the shell and API agree.
+    session = decode_session(proof_session) or decode_session(legacy_session)
     if not session or session.get("role") != "host":
         raise HTTPException(401, "Host login required")
     return session
 
 
-def require_participant(proof_session: str | None = Cookie(None, alias=PARTICIPANT_COOKIE_NAME)):
-    session = decode_session(proof_session)
+def require_participant(
+    proof_session: str | None = Cookie(None, alias=PARTICIPANT_COOKIE_NAME),
+    legacy_session: str | None = Cookie(None, alias=LEGACY_COOKIE_NAME),
+):
+    session = decode_session(proof_session) or decode_session(legacy_session)
     if not session or session.get("role") != "participant":
         raise HTTPException(401, "Participant login required")
     return session

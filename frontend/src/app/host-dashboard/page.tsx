@@ -1,5 +1,6 @@
 "use client";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { ArrowRight, CheckCircle2, ClipboardCheck, Gauge, Globe2, Medal, Plus, Radar, ShieldAlert, Sparkles, UploadCloud } from "lucide-react";
 import { api, Leader, Submission, upload } from "@/lib/api";
@@ -8,6 +9,7 @@ import { JudgeActions } from "@/components/judge-actions";
 type RegistrationImport = {uploaded:boolean;participant_count:number;created_count:number;updated_count:number;skipped_count:number;email_missing_count:number;status_lines:string[]};
 
 export default function Dashboard() {
+  const router = useRouter();
   const [submissions, setSubmissions] = useState<Submission[]>([]);
   const [leaders, setLeaders] = useState<Leader[]>([]);
   const [error, setError] = useState("");
@@ -17,11 +19,19 @@ export default function Dashboard() {
   const [uploading, setUploading] = useState(false);
   const [aiStatus, setAiStatus] = useState<{provider:string;model:string;key_configured:boolean;ai_assessment_configured:boolean;workers_online:number;worker_ready:boolean}|null>(null);
   async function refresh(){const [s,l]=await Promise.all([api<Submission[]>("/api/submissions"),api<Leader[]>("/api/leaderboard")]);setSubmissions(s);setLeaders(l);}
+  function handleRefreshError(e: unknown) {
+    const message = e instanceof Error ? e.message : String(e);
+    if (/host login required|participant login required|\b401\b/i.test(message)) {
+      router.replace("/host-login");
+      return;
+    }
+    setError(message);
+  }
   async function refreshJudgeStatus(){api<{provider:string;model:string;key_configured:boolean;ai_assessment_configured:boolean;workers_online:number;worker_ready:boolean}>("/api/judge/status").then(setAiStatus).catch(() => setAiStatus(null));}
   useEffect(() => {
-    refresh().catch((e) => setError(e.message));
+    refresh().catch(handleRefreshError);
     refreshJudgeStatus();
-    const dataTimer = window.setInterval(() => refresh().catch((e) => setError(e.message)), 5000);
+    const dataTimer = window.setInterval(() => refresh().catch(handleRefreshError), 5000);
     const statusTimer = window.setInterval(refreshJudgeStatus, 15000);
     return () => {window.clearInterval(dataTimer);window.clearInterval(statusTimer);};
   }, []);
