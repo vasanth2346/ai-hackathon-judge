@@ -900,7 +900,7 @@ def start_judging(submission_id: str, _host: dict = Depends(require_host), db: S
 @app.get("/api/judge/status")
 def judge_configuration_status(_host: dict = Depends(require_host)):
     provider = settings.llm_provider.lower()
-    supported = provider in {"openai", "openai-compatible", "google", "gemini"}
+    supported = provider in {"openai", "openai-compatible", "groq", "google", "gemini"}
     configured = bool(settings.llm_api_key.strip())
     workers_online = online_judge_workers()
     return {"provider": provider, "model": settings.llm_model, "key_configured": configured, "ai_assessment_configured": supported and configured, "workers_online": workers_online, "worker_ready": workers_online > 0}
