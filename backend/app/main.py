@@ -707,12 +707,7 @@ def participant_submission(
     db.add(submission)
     db.commit()
     db.refresh(submission)
-    run = JudgeRun(submission_id=submission.id, status="queued", phase="Waiting for judge worker", progress=0, observations=[], evidence=[], review_flags=[])
-    db.add(run)
-    db.commit()
-    db.refresh(run)
-    enqueue_evaluation(run, db)
-    return submission_view(submission, run)
+    return submission_view(submission)
 
 
 @app.post("/api/submissions", status_code=201)
