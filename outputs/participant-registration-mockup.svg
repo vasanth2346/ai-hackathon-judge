@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1080" viewBox="0 0 1600 1080">
+  <rect width="1600" height="1080" fill="#f3f6f4"/>
+  <rect width="1600" height="76" fill="#fff"/>
+  <path d="M0 75H1600" stroke="#e6ebe8"/>
+  <rect x="64" y="19" width="38" height="38" rx="11" fill="#174f40"/>
+  <text x="83" y="45" text-anchor="middle" font-family="Arial,sans-serif" font-size="23" font-weight="700" fill="#fff">P</text>
+  <text x="117" y="41" font-family="Arial,sans-serif" font-size="23" font-weight="700" fill="#172a23">proof<tspan fill="#dc8c58">.</tspan></text>
+  <text x="118" y="57" font-family="Arial,sans-serif" font-size="9" letter-spacing="1.6" font-weight="700" fill="#85938c">HACKATHON JUDGE</text>
+  <rect x="1370" y="19" width="166" height="38" rx="9" fill="#eaf3ee"/>
+  <text x="1453" y="43" text-anchor="middle" font-family="Arial,sans-serif" font-size="14" font-weight="700" fill="#245c49">Participant Login</text>
+  <text x="64" y="123" font-family="Arial,sans-serif" font-size="11" letter-spacing="2" font-weight="700" fill="#5d8d78">PARTICIPANT REGISTRATION</text>
+  <text x="64" y="166" font-family="Arial,sans-serif" font-size="30" font-weight="700" fill="#172a23">Your project, submitted with confidence.</text>
+  <text x="64" y="195" font-family="Arial,sans-serif" font-size="15" fill="#75847c">Verify the roster email, then add your project details.</text>
+  <rect x="64" y="220" width="716" height="795" rx="18" fill="#fff" stroke="#e2e9e5"/>
+  <rect x="800" y="220" width="736" height="795" rx="18" fill="#fff" stroke="#e2e9e5"/>
+  <circle cx="105" cy="264" r="17" fill="#e8f3ed"/>
+  <text x="105" y="270" text-anchor="middle" font-family="Arial,sans-serif" font-size="15" font-weight="700" fill="#287054">1</text>
+  <text x="136" y="271" font-family="Arial,sans-serif" font-size="21" font-weight="700" fill="#19372b">Verify your registration</text>
+  <text x="99" y="302" font-family="Arial,sans-serif" font-size="13" fill="#74837b">Your verified sign-in email must match the host's uploaded document.</text>
+  <text x="99" y="347" font-family="Arial,sans-serif" font-size="12" font-weight="700" fill="#45584e">Name</text>
+  <rect x="99" y="359" width="646" height="48" rx="8" fill="#fff" stroke="#dce5df"/>
+  <text x="114" y="389" font-family="Arial,sans-serif" font-size="14" fill="#9aa59f">Enter your name</text>
+  <text x="99" y="437" font-family="Arial,sans-serif" font-size="12" font-weight="700" fill="#45584e">Email</text>
+  <rect x="99" y="449" width="646" height="48" rx="8" fill="#f6f8f7" stroke="#dce5df"/>
+  <text x="114" y="479" font-family="Arial,sans-serif" font-size="14" fill="#4d6156">Verified email from sign-in</text>
+  <rect x="674" y="463" width="58" height="20" rx="10" fill="#e3f0e8"/>
+  <text x="703" y="477" text-anchor="middle" font-family="Arial,sans-serif" font-size="9" font-weight="700" fill="#317253">VERIFIED</text>
+  <text x="99" y="527" font-family="Arial,sans-serif" font-size="12" font-weight="700" fill="#45584e">Phone number</text>
+  <rect x="99" y="539" width="646" height="48" rx="8" fill="#fff" stroke="#dce5df"/>
+  <text x="114" y="569" font-family="Arial,sans-serif" font-size="14" fill="#9aa59f">Enter your phone number</text>
+  <text x="99" y="617" font-family="Arial,sans-serif" font-size="12" font-weight="700" fill="#45584e">Project domain</text>
+  <rect x="99" y="629" width="646" height="261" rx="9" fill="#fff" stroke="#dce5df"/>
+  <rect x="100" y="630" width="644" height="38" rx="8" fill="#f8faf9"/>
+  <text x="115" y="655" font-family="Arial,sans-serif" font-size="13" fill="#9aa59f">Choose a domain</text>
+  <path d="M714 645l6 6 6-6" fill="none" stroke="#64756b" stroke-width="1.7"/>
+  <path d="M100 668H744M100 699H744M100 730H744M100 761H744M100 792H744M100 823H744M100 854H744" stroke="#edf1ee"/>
+  <g font-family="Arial,sans-serif" font-size="12" fill="#32483c">
+    <text x="115" y="689">AI for Healthcare</text>
+    <text x="115" y="720">AI for Agriculture</text>
+    <text x="115" y="751">AI for Finance</text>
+    <text x="115" y="782">AI for Cybersecurity</text>
+    <text x="115" y="813">AI for Biotech &amp; Deep Tech</text>
+    <text x="115" y="844">AI for Computer Vision</text>
+    <text x="115" y="875">Open Innovation</text>
+  </g>
+  <g fill="#fff" stroke="#cfdad3"><rect x="710" y="672" width="19" height="19" rx="5"/><rect x="710" y="703" width="19" height="19" rx="5"/><rect x="710" y="734" width="19" height="19" rx="5"/><rect x="710" y="765" width="19" height="19" rx="5"/><rect x="710" y="796" width="19" height="19" rx="5"/><rect x="710" y="827" width="19" height="19" rx="5"/><rect x="710" y="858" width="19" height="19" rx="5"/></g>
+  <rect x="99" y="911" width="646" height="48" rx="9" fill="#174f40"/>
+  <text x="422" y="941" text-anchor="middle" font-family="Arial,sans-serif" font-size="14" font-weight="700" fill="#fff">Verify registration</text>
+  <circle cx="841" cy="264" r="17" fill="#e8f3ed"/>
+  <text x="841" y="270" text-anchor="middle" font-family="Arial,sans-serif" font-size="15" font-weight="700" fill="#287054">2</text>
+  <text x="872" y="271" font-family="Arial,sans-serif" font-size="21" font-weight="700" fill="#19372b">Project submission</text>
+  <text x="835" y="302" font-family="Arial,sans-serif" font-size="13" fill="#74837b">Available after your sign-in email matches the roster.</text>
+  <text x="835" y="347" font-family="Arial,sans-serif" font-size="12" font-weight="700" fill="#45584e">Deployed website URL</text>
+  <rect x="835" y="359" width="666" height="48" rx="8" fill="#fff" stroke="#dce5df"/>
+  <text x="850" y="389" font-family="Arial,sans-serif" font-size="14" fill="#9aa59f">Paste your deployed project link</text>
+  <text x="835" y="437" font-family="Arial,sans-serif" font-size="12" font-weight="700" fill="#45584e">GitHub repository</text>
+  <rect x="835" y="449" width="666" height="48" rx="8" fill="#fff" stroke="#dce5df"/>
+  <text x="850" y="479" font-family="Arial,sans-serif" font-size="14" fill="#9aa59f">Paste your repository link</text>
+  <text x="835" y="527" font-family="Arial,sans-serif" font-size="12" font-weight="700" fill="#45584e">Problem statement</text>
+  <rect x="835" y="539" width="666" height="82" rx="8" fill="#fff" stroke="#dce5df"/>
+  <text x="850" y="569" font-family="Arial,sans-serif" font-size="14" fill="#9aa59f">Describe the problem your project addresses</text>
+  <text x="835" y="655" font-family="Arial,sans-serif" font-size="12" font-weight="700" fill="#45584e">Description</text>
+  <rect x="835" y="667" width="666" height="96" rx="8" fill="#fff" stroke="#dce5df"/>
+  <text x="850" y="697" font-family="Arial,sans-serif" font-size="14" fill="#9aa59f">Describe your project</text>
+  <text x="835" y="797" font-family="Arial,sans-serif" font-size="12" font-weight="700" fill="#45584e">Domain</text>
+  <rect x="835" y="809" width="666" height="48" rx="8" fill="#f6f8f7" stroke="#dce5df"/>
+  <text x="850" y="839" font-family="Arial,sans-serif" font-size="14" fill="#596d61">Selected during registration verification</text>
+  <rect x="835" y="876" width="666" height="48" rx="9" fill="#174f40"/>
+  <text x="1168" y="906" text-anchor="middle" font-family="Arial,sans-serif" font-size="14" font-weight="700" fill="#fff">Submit project</text>
+  <rect x="835" y="940" width="666" height="54" rx="10" fill="#f1f7f3" stroke="#dcebe1"/>
+  <text x="853" y="963" font-family="Arial,sans-serif" font-size="12" font-weight="700" fill="#317253">After submission</text>
+  <text x="853" y="982" font-family="Arial,sans-serif" font-size="12" fill="#6d7d73">Status only; scores and evaluation descriptions stay private.</text>
+  <text x="64" y="1052" font-family="Arial,sans-serif" font-size="12" fill="#7c8982">Email verification is based on the host roster. Participant view does not show marks or evaluation descriptions.</text>
+</svg>
