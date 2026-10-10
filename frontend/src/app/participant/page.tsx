@@ -1,7 +1,19 @@
 "use client";
-import { useEffect, useState } from "react";
+
+import Link from "next/link";
+import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, ParticipantDetails, upload } from "@/lib/api";
+
+const domains = [
+  "AI for Healthcare",
+  "AI for Agriculture",
+  "AI for Finance",
+  "AI for Cybersecurity",
+  "AI for Biotech & Deep Tech",
+  "AI for Computer Vision",
+  "Open Innovation",
+];
 
 export default function ParticipantPage() {
   const router = useRouter();
@@ -27,7 +39,7 @@ export default function ParticipantPage() {
     finally { router.replace("/participant-login"); }
   }
 
-  async function submitProject(event: React.FormEvent<HTMLFormElement>) {
+  async function submitProject(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSaving(true);
     setError("");
@@ -42,7 +54,7 @@ export default function ParticipantPage() {
     }
   }
 
-  async function verifyRegistration(event: React.FormEvent<HTMLFormElement>) {
+  async function verifyRegistration(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setVerifying(true);
     setError("");
@@ -58,54 +70,102 @@ export default function ParticipantPage() {
   }
 
   if (loading) return <div className="auth-loading">Loading participant account…</div>;
-  if (!details) return <main className="participant-page"><section className="panel" style={{maxWidth:560,margin:"50px auto"}}><div className="error-banner">{error || "Could not load participant account."}</div><button className="secondary-btn" onClick={signOut}>Back to sign in</button></section></main>;
-  return <main className="participant-page">
-    <header className="participant-top"><span className="brand"><span className="brand-icon">P</span><span>proof<span className="brand-dot">.</span><small>PARTICIPANT</small></span></span><button className="secondary-btn" onClick={signOut}>Sign out</button></header>
-    <section className="participant-content">
-      {!details.linked ? <section className="panel" style={{marginTop:40,maxWidth:620,marginInline:"auto"}}>
-        <div className="eyebrow">PARTICIPANT REGISTRATION</div>
-        <h1 className="page-title" style={{marginTop:8}}>Registration not found</h1>
-        <p className="participant-copy">{details.registration_message || "No host registration matches this account email."}</p>
-        <p className="participant-copy" style={{marginTop:10}}>Signed-in email: <b>{details.email}</b></p>
-        <button className="secondary-btn" style={{marginTop:16}} onClick={signOut}>Sign out</button>
-      </section> : details.needs_profile ? <section className="panel" style={{marginTop:40,maxWidth:620,marginInline:"auto"}}>
-        <div className="eyebrow">PARTICIPANT REGISTRATION</div>
-        <h1 className="page-title" style={{marginTop:8}}>Verify your registration</h1>
-        <p className="participant-copy">Your signed-in email must match the email in the host’s registration document. We use that email to verify your registration.</p>
-        <form className="form-layout" onSubmit={verifyRegistration} style={{marginTop:18}}><div className="form-card">
-          <div className="field"><label htmlFor="participant-name">Name <span className="required">*</span></label><input id="participant-name" name="participant_name" defaultValue={details.participant_name} required minLength={2} maxLength={200}/></div>
-          <p className="field-note" style={{margin:"0 0 6px"}}>Signed in and verified as <b>{details.email}</b>.</p>
-          <div className="field"><label htmlFor="participant-phone">Phone number <span className="required">*</span></label><input id="participant-phone" name="phone" type="tel" defaultValue={details.phone} required minLength={7} maxLength={60}/></div>
-          <div className="field"><label htmlFor="participant-domain">Project domain <span className="required">*</span></label><select id="participant-domain" name="domain" value={selectedDomain} onChange={event=>setSelectedDomain(event.target.value)} required><option value="" disabled>Select a domain</option>{["AI for Healthcare","AI for Agriculture","AI for Finance","AI for Cybersecurity","AI for Biotech & Deep Tech","AI for Computer Vision","Open Innovation"].map(domain=><option key={domain} value={domain}>{domain}</option>)}</select></div>
-          {selectedDomain === "Open Innovation" && <div className="field"><label htmlFor="open-innovation-details">Project details <span className="required">*</span></label><textarea id="open-innovation-details" name="open_innovation_details" required minLength={10} maxLength={4000} rows={4}/><span className="field-note">Describe the project you are doing.</span></div>}
-          {error && <div className="error-banner">{error}</div>}
-          <button className="primary-btn" disabled={verifying}>{verifying ? "Verifying…" : "Verify registration"}</button>
-        </div></form>
-      </section> : <>
-        <div className="eyebrow">PARTICIPANT DASHBOARD</div>
-        <h1 className="page-title" style={{marginTop:8}}>{details.participant_name}</h1>
-        <p className="page-subtitle">{details.email}{details.phone ? ` · ${details.phone}` : ""}{details.college_name ? ` · ${details.college_name}` : ""}</p>
 
-        {!details.has_submission ? <section className="panel" style={{marginTop:18}}>
-          <div className="panel-title">Submit your project</div>
-          <p className="participant-copy">Your registration details are loaded. Complete the project fields to send your submission to the host associated with your registration.</p>
-          <form className="form-layout" onSubmit={submitProject} style={{marginTop:14}}><div className="form-card">
-            <div className="field"><label>Project name <span className="required">*</span></label><input name="project_name" required minLength={2} maxLength={160}/></div>
-            <div className="field"><label>Live project URL <span className="required">*</span></label><input name="deployed_url" type="url" required/></div>
-            <div className="field"><label>GitHub repository <span className="required">*</span></label><input name="github_url" type="url" required/></div>
-            <div className="field"><label>Problem statement <span className="required">*</span></label><textarea name="problem_statement" required minLength={10} maxLength={4000} rows={3}/></div>
-            <div className="field"><label>Description <span className="field-note">Optional</span></label><textarea name="solution_description" maxLength={4000} rows={4}/></div>
-            {error && <div className="error-banner">{error}</div>}
-            <button className="primary-btn" disabled={saving}>{saving ? "Submitting…" : "Submit project"}</button>
-          </div></form>
-        </section> : <>
-          <h2 className="page-title" style={{marginTop:22}}>{details.project_name}</h2>
-          <section className="panel" style={{marginTop:14}}><h2 className="panel-title">Submission status</h2><p className="participant-copy">{details.evaluation_status === "completed" ? "Your project has been evaluated." : details.evaluation_status === "running" || details.evaluation_status === "queued" ? "Your project is being evaluated." : "Your project has been received."}</p></section>
-          <div className="participant-details"><section className="panel"><h2 className="panel-title">Project information</h2><div className="section-title" style={{fontSize:10}}>Domain</div><p className="participant-copy">{details.domain || "—"}</p><h2 className="panel-title" style={{marginTop:15}}>Problem statement</h2><p className="participant-copy">{details.problem_statement}</p><a href={details.deployed_url} target="_blank" rel="noreferrer" className="text-link">Open live project ↗</a>{details.github_url && <p><a href={details.github_url} target="_blank" rel="noreferrer" className="text-link">GitHub repository ↗</a></p>}</section>
-          </div>
-        </>}
-
-      </>}
+  if (!details) return <main className="participant-page">
+    <section className="participant-panel participant-unavailable">
+      <div className="error-banner">{error || "Could not load participant account."}</div>
+      <button className="secondary-btn" onClick={signOut}>Back to sign in</button>
     </section>
   </main>;
+
+  if (!details.linked) return <main className="participant-page">
+    <ParticipantHeader onSignOut={signOut} />
+    <div className="participant-flow-shell">
+      <div className="participant-eyebrow">PARTICIPANT REGISTRATION</div>
+      <h1 className="participant-flow-title">Your project, submitted with confidence.</h1>
+      <p className="participant-flow-subtitle">Verify the roster email, then add your project details.</p>
+      <section className="participant-panel participant-unavailable">
+        <h2>Registration not found</h2>
+        <p>{details.registration_message || "No host registration matches this account email."}</p>
+        <p>Signed-in email: <b>{details.email}</b></p>
+        <button className="secondary-btn" onClick={signOut}>Sign out</button>
+      </section>
+    </div>
+  </main>;
+
+  const profileVerified = !details.needs_profile;
+  const hasSubmitted = details.has_submission;
+
+  return <main className="participant-page">
+    <ParticipantHeader onSignOut={signOut} />
+    <div className="participant-flow-shell">
+      <div className="participant-eyebrow">PARTICIPANT REGISTRATION</div>
+      <h1 className="participant-flow-title">Your project, submitted with confidence.</h1>
+      <p className="participant-flow-subtitle">Verify the roster email, then add your project details.</p>
+
+      <div className="participant-flow-grid">
+        <section className="participant-panel">
+          <div className="participant-step-heading">
+            <span className="participant-step-number">1</span>
+            <h2>{profileVerified ? "Registration verified" : "Verify your registration"}</h2>
+          </div>
+          <p className="participant-step-copy">Your verified sign-in email must match the host’s uploaded document.</p>
+
+          {profileVerified ? <div className="participant-form-fields">
+            <ReadOnlyField label="Name" value={details.participant_name || "—"} />
+            <ReadOnlyField label="Email" value={details.email} verified />
+            <ReadOnlyField label="Phone number" value={details.phone || "—"} />
+            <ReadOnlyField label="Project domain" value={details.domain || "—"} />
+            {details.domain === "Open Innovation" && details.problem_statement && <ReadOnlyField label="Project details" value={details.problem_statement} />}
+          </div> : <form className="participant-form-fields" onSubmit={verifyRegistration}>
+            <div className="participant-field"><label htmlFor="participant-name">Name <span className="required">*</span></label><input id="participant-name" name="participant_name" defaultValue={details.participant_name} required minLength={2} maxLength={200} /></div>
+            <div className="participant-field"><label>Email</label><div className="participant-email-field"><span>{details.email}</span><span className="participant-verified-badge">Verified</span></div></div>
+            <div className="participant-field"><label htmlFor="participant-phone">Phone number <span className="required">*</span></label><input id="participant-phone" name="phone" type="tel" defaultValue={details.phone} required minLength={7} maxLength={60} /></div>
+            <div className="participant-field"><label htmlFor="participant-domain">Project domain <span className="required">*</span></label><select id="participant-domain" name="domain" value={selectedDomain} onChange={(event) => setSelectedDomain(event.target.value)} required><option value="" disabled>Choose a domain</option>{domains.map((domain) => <option key={domain} value={domain}>{domain}</option>)}</select></div>
+            {selectedDomain === "Open Innovation" && <div className="participant-field"><label htmlFor="open-innovation-details">Project details <span className="required">*</span></label><textarea id="open-innovation-details" name="open_innovation_details" required minLength={10} maxLength={4000} rows={4} /><span className="field-note">Describe the project you are doing.</span></div>}
+            {error && <div className="error-banner">{error}</div>}
+            <button className="primary-btn" disabled={verifying}>{verifying ? "Verifying…" : "Verify registration"}</button>
+          </form>}
+        </section>
+
+        <section className={`participant-panel${profileVerified ? "" : " participant-panel-locked"}`} aria-disabled={!profileVerified}>
+          <div className="participant-step-heading">
+            <span className="participant-step-number">2</span>
+            <h2>{hasSubmitted ? "Project submitted" : "Project submission"}</h2>
+          </div>
+          <p className="participant-step-copy">{profileVerified ? "Add your deployed project, repository, and problem statement." : "Available after your sign-in email matches the roster."}</p>
+
+          {hasSubmitted ? <div className="participant-form-fields">
+            <ReadOnlyField label="Project name" value={details.project_name} />
+            <ReadOnlyField label="Deployed website URL" value={details.deployed_url} />
+            <ReadOnlyField label="GitHub repository" value={details.github_url || "—"} />
+            <ReadOnlyField label="Problem statement" value={details.problem_statement} />
+            <ReadOnlyField label="Domain" value={details.domain || "—"} />
+            <div className="participant-status-note"><b>Submission status</b><span>{details.evaluation_status === "completed" ? "Your project has been evaluated." : details.evaluation_status === "running" || details.evaluation_status === "queued" ? "Your project is being evaluated." : "Your project has been received."}</span></div>
+          </div> : <form className="participant-form-fields" onSubmit={submitProject}>
+            <div className="participant-field"><label htmlFor="project-name">Project name <span className="required">*</span></label><input id="project-name" name="project_name" required minLength={2} maxLength={160} disabled={!profileVerified} /></div>
+            <div className="participant-field"><label htmlFor="deployed-url">Deployed website URL <span className="required">*</span></label><input id="deployed-url" name="deployed_url" type="url" placeholder="https://your-project.example" required disabled={!profileVerified} /></div>
+            <div className="participant-field"><label htmlFor="github-url">GitHub repository <span className="required">*</span></label><input id="github-url" name="github_url" type="url" placeholder="https://github.com/…" required disabled={!profileVerified} /></div>
+            <div className="participant-field"><label htmlFor="problem-statement">Problem statement <span className="required">*</span></label><textarea id="problem-statement" name="problem_statement" placeholder="Describe the problem your project addresses" required minLength={10} maxLength={4000} rows={3} disabled={!profileVerified} /></div>
+            <div className="participant-field"><label htmlFor="project-description">Description <span className="field-note">Optional</span></label><textarea id="project-description" name="solution_description" placeholder="Describe your project" maxLength={4000} rows={4} disabled={!profileVerified} /></div>
+            <div className="participant-field"><label>Domain</label><div className="participant-email-field">{details.domain || "Selected during registration verification"}</div></div>
+            {error && <div className="error-banner">{error}</div>}
+            <button className="primary-btn" disabled={!profileVerified || saving}>{saving ? "Submitting…" : "Submit project"}</button>
+          </form>}
+          {hasSubmitted && <p className="participant-private-note">Your participant view shows submission status only. Scores and evaluation details stay private.</p>}
+        </section>
+      </div>
+    </div>
+  </main>;
+}
+
+function ParticipantHeader({ onSignOut }: { onSignOut: () => void }) {
+  return <header className="participant-flow-header">
+    <Link className="brand" href="/"><span className="brand-icon">P</span><span>proof<span className="brand-dot">.</span><small>HACKATHON JUDGE</small></span></Link>
+    <button className="secondary-btn" onClick={onSignOut}>Sign out</button>
+  </header>;
+}
+
+function ReadOnlyField({ label, value, verified = false }: { label: string; value: string; verified?: boolean }) {
+  return <div className="participant-field"><label>{label}</label><div className="participant-readonly-field"><span>{value}</span>{verified && <span className="participant-verified-badge">Verified</span>}</div></div>;
 }
